@@ -5,8 +5,18 @@ export type Project = {
   description?: string | null;
   status: string;
   progress: number;
+  progress_mode?: "AUTO" | "MANUAL" | string;
+  project_type?: string | null;
+  tags?: string | null;
+  current_stage?: string | null;
+  next_stage?: string | null;
+  health?: string | null;
   remote_url?: string | null;
   branch?: string | null;
+  default_branch?: string | null;
+  experiment_dir?: string | null;
+  results_dir?: string | null;
+  links?: string | null;
 };
 
 
@@ -18,6 +28,70 @@ export type ProjectProgressLog = {
   completed: string;
   pending: string;
   progress_note?: string | null;
+};
+
+export type DirectoryListing = {
+  path: string;
+  parent?: string | null;
+  items: { name: string; path: string; is_dir: boolean }[];
+};
+
+export type ProjectStage = {
+  id?: number;
+  project_id?: number;
+  title: string;
+  status: string;
+  weight: number;
+  progress: number;
+  order_index: number;
+  milestones?: MilestoneProgress[];
+};
+
+export type MilestoneProgress = {
+  id: number;
+  title: string;
+  status: string;
+  weight: number;
+  progress: number;
+  order_index: number;
+  tasks_total: number;
+  tasks_done: number;
+};
+
+export type ProjectProgress = {
+  project_id: number;
+  mode: string;
+  progress: number;
+  current_stage?: string | null;
+  next_stage?: string | null;
+  computed_current_stage?: string | null;
+  computed_next_stage?: string | null;
+  stages: ProjectStage[];
+  orphan_milestones: MilestoneProgress[];
+};
+
+export type ProjectScan = {
+  name: string;
+  path: string;
+  description?: string | null;
+  project_type: string;
+  tags: string[];
+  detections: Record<string, boolean>;
+  git: any;
+  branch?: string | null;
+  remote_url?: string | null;
+  readme?: string | null;
+  registration_case: string;
+  suggested_stages: ProjectStage[];
+};
+
+export type GitCommit = {
+  hash: string;
+  short_hash: string;
+  author?: string | null;
+  date?: string | null;
+  message?: string | null;
+  stats?: string | null;
 };
 
 export type Task = {
@@ -85,6 +159,7 @@ export type Experiment = {
   title: string;
   date?: string | null;
   git_commit?: string | null;
+  git_branch?: string | null;
   config_path?: string | null;
   dataset?: string | null;
   metrics?: string | null;

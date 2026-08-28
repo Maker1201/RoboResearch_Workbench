@@ -1,4 +1,4 @@
-import type { DashboardSummary, Experiment, FocusSession, KnowledgeLink, Paper, Project, ProjectProgressLog, ReadingNote, SearchPaper, Summary, SystemSettings, Task } from "./types";
+import type { DashboardSummary, DirectoryListing, Experiment, FocusSession, GitCommit, KnowledgeLink, Paper, Project, ProjectProgress, ProjectProgressLog, ProjectScan, ReadingNote, SearchPaper, Summary, SystemSettings, Task } from "./types";
 
 export const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8765";
 
@@ -41,14 +41,54 @@ export const api = {
     method: "PUT",
     body: JSON.stringify({ layout }),
   }),
-  projects: () => request<Project[]>("/projects"),
+  directories: (path?: string) => request<DirectoryListing>(`/filesystem/directories${path ? `?path=${encodeURIComponent(path)}` : ""}`),
+  projects: (params?: { search?: string; status?: string; tag?: string; sort?: string }) => {
+    const query = new URLSearchParams();
+    if (params?.search) query.set("search", params.search);
+    if (params?.status) query.set("status", params.status);
+    if (params?.tag) query.set("tag", params.tag);
+    if (params?.sort) query.set("sort", params.sort);
+    return request<Project[]>(`/projects${query.toString() ? `?${query.toString()}` : ""}`);
+  },
   discoverProjects: () => request<any[]>("/projects/discover"),
+  scanProject: (path: string) => request<ProjectScan>("/projects/scan", {
+    method: "POST",
+    body: JSON.stringify({ path }),
+  }),
+  registerProject: (payload: any) => request<Project>("/projects/register", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }),
   createProject: (project: Partial<Project>) => request<Project>("/projects", {
     method: "POST",
     body: JSON.stringify(project),
   }),
+  updateProject: (id: number, project: Partial<Project>) => request<Project>(`/projects/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(project),
+  }),
+  projectDetail: (id: number) => request<any>(`/projects/${id}/detail`),
+  projectProgress: (id: number) => request<ProjectProgress>(`/projects/${id}/progress`),
+  initializeProjectProgress: (id: number) => request<any>(`/projects/${id}/progress/initialize`, { method: "POST" }),
+  createStage: (stage: any) => request<any>("/project-stages", {
+    method: "POST",
+    body: JSON.stringify(stage),
+  }),
+  updateStage: (id: number, stage: any) => request<any>(`/project-stages/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(stage),
+  }),
+  gitInit: (id: number) => request<any>(`/projects/${id}/git/init`, { method: "POST" }),
   gitStatus: (id: number) => request<any>(`/projects/${id}/git/status`),
-  gitDiff: (id: number, file?: string) => request<any>(`/projects/${id}/git/diff${file ? `?file=${encodeURIComponent(file)}` : ""}`),
+  gitDiff: (id: number, file?: string, staged?: boolean) => request<any>(`/projects/${id}/git/diff${file || staged ? `?${new URLSearchParams({ ...(file ? { file } : {}), ...(staged ? { staged: "true" } : {}) }).toString()}` : ""}`),
+  gitStage: (id: number, files: string[]) => request<any>(`/projects/${id}/git/stage`, {
+    method: "POST",
+    body: JSON.stringify({ files }),
+  }),
+  gitUnstage: (id: number, files: string[]) => request<any>(`/projects/${id}/git/unstage`, {
+    method: "POST",
+    body: JSON.stringify({ files }),
+  }),
   gitCommit: (id: number, files: string[], message: string) => request<any>(`/projects/${id}/git/commit`, {
     method: "POST",
     body: JSON.stringify({ files, message }),
@@ -56,6 +96,26 @@ export const api = {
   gitPush: (id: number, branch?: string) => request<any>(`/projects/${id}/git/push`, {
     method: "POST",
     body: JSON.stringify({ confirm: true, branch }),
+  }),
+  gitPull: (id: number, branch?: string) => request<any>(`/projects/${id}/git/pull`, {
+    method: "POST",
+    body: JSON.stringify({ branch }),
+  }),
+  prePushCheck: (id: number) => request<any>(`/projects/${id}/git/pre-push-check`),
+  publishGithub: (id: number, payload: any) => request<any>(`/projects/${id}/publish-github`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }),
+  versions: (id: number) => request<GitCommit[]>(`/projects/${id}/versions`),
+  versionDetail: (id: number, hash: string) => request<any>(`/projects/${id}/versions/${hash}`),
+  openVersion: (id: number, hash: string) => request<any>(`/projects/${id}/versions/${hash}/open`, { method: "POST" }),
+  createBranchFromVersion: (id: number, hash: string, name: string) => request<any>(`/projects/${id}/versions/${hash}/branch`, {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  }),
+  restoreVersion: (id: number, hash: string, confirm: boolean) => request<any>(`/projects/${id}/versions/${hash}/restore`, {
+    method: "POST",
+    body: JSON.stringify({ confirm, create_backup_branch: true }),
   }),
   tasks: () => request<Task[]>("/tasks"),
   createTask: (task: Partial<Task>) => request<Task>("/tasks", {

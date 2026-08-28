@@ -5,6 +5,9 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+PROJECT_STATUSES = {"Planning", "Active", "Blocked", "Paused", "Completed", "Archived"}
+PROGRESS_MODES = {"AUTO", "MANUAL"}
+
 
 class ORMModel(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -14,10 +17,20 @@ class ProjectBase(BaseModel):
     name: str
     path: str
     description: str | None = None
-    status: str = "active"
+    status: str = "Active"
     progress: float = Field(default=0, ge=0, le=100)
+    progress_mode: str = "AUTO"
+    project_type: str | None = None
+    tags: str | None = None
+    current_stage: str | None = None
+    next_stage: str | None = None
+    health: str | None = None
     remote_url: str | None = None
     branch: str | None = None
+    default_branch: str | None = None
+    experiment_dir: str | None = None
+    results_dir: str | None = None
+    links: str | None = None
 
 
 class ProjectCreate(ProjectBase):
@@ -30,8 +43,18 @@ class ProjectUpdate(BaseModel):
     description: str | None = None
     status: str | None = None
     progress: float | None = Field(default=None, ge=0, le=100)
+    progress_mode: str | None = None
+    project_type: str | None = None
+    tags: str | None = None
+    current_stage: str | None = None
+    next_stage: str | None = None
+    health: str | None = None
     remote_url: str | None = None
     branch: str | None = None
+    default_branch: str | None = None
+    experiment_dir: str | None = None
+    results_dir: str | None = None
+    links: str | None = None
 
 
 class ProjectOut(ProjectBase, ORMModel):
@@ -40,9 +63,38 @@ class ProjectOut(ProjectBase, ORMModel):
     updated_at: datetime
 
 
-class MilestoneBase(BaseModel):
+class ProjectStageBase(BaseModel):
     project_id: int
     title: str
+    status: str = "pending"
+    weight: float = 1
+    progress: float = Field(default=0, ge=0, le=100)
+    order_index: int = 0
+
+
+class ProjectStageCreate(ProjectStageBase):
+    pass
+
+
+class ProjectStageUpdate(BaseModel):
+    title: str | None = None
+    status: str | None = None
+    weight: float | None = None
+    progress: float | None = Field(default=None, ge=0, le=100)
+    order_index: int | None = None
+
+
+class ProjectStageOut(ProjectStageBase, ORMModel):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class MilestoneBase(BaseModel):
+    project_id: int
+    stage_id: int | None = None
+    title: str
+    status: str = "pending"
     weight: float = 1
     progress: float = Field(default=0, ge=0, le=100)
     order_index: int = 0
@@ -50,6 +102,15 @@ class MilestoneBase(BaseModel):
 
 class MilestoneCreate(MilestoneBase):
     pass
+
+
+class MilestoneUpdate(BaseModel):
+    stage_id: int | None = None
+    title: str | None = None
+    status: str | None = None
+    weight: float | None = None
+    progress: float | None = Field(default=None, ge=0, le=100)
+    order_index: int | None = None
 
 
 class MilestoneOut(MilestoneBase, ORMModel):
@@ -60,6 +121,7 @@ class MilestoneOut(MilestoneBase, ORMModel):
 
 class TaskBase(BaseModel):
     project_id: int | None = None
+    milestone_id: int | None = None
     title: str
     status: str = "todo"
     priority: str = "medium"
@@ -73,6 +135,7 @@ class TaskCreate(TaskBase):
 
 class TaskUpdate(BaseModel):
     project_id: int | None = None
+    milestone_id: int | None = None
     title: str | None = None
     status: str | None = None
     priority: str | None = None
@@ -81,34 +144,6 @@ class TaskUpdate(BaseModel):
 
 
 class TaskOut(TaskBase, ORMModel):
-    id: int
-    created_at: datetime
-    updated_at: datetime
-
-
-class ProjectProgressLogBase(BaseModel):
-    project_id: int
-    date: str
-    stage: str | None = None
-    completed: str = ""
-    pending: str = ""
-    progress_note: str | None = None
-
-
-class ProjectProgressLogCreate(ProjectProgressLogBase):
-    pass
-
-
-class ProjectProgressLogUpdate(BaseModel):
-    project_id: int | None = None
-    date: str | None = None
-    stage: str | None = None
-    completed: str | None = None
-    pending: str | None = None
-    progress_note: str | None = None
-
-
-class ProjectProgressLogOut(ProjectProgressLogBase, ORMModel):
     id: int
     created_at: datetime
     updated_at: datetime
@@ -194,6 +229,7 @@ class ExperimentBase(BaseModel):
     title: str
     date: str | None = None
     git_commit: str | None = None
+    git_branch: str | None = None
     config_path: str | None = None
     dataset: str | None = None
     metrics: str | None = None
@@ -211,6 +247,7 @@ class ExperimentUpdate(BaseModel):
     title: str | None = None
     date: str | None = None
     git_commit: str | None = None
+    git_branch: str | None = None
     config_path: str | None = None
     dataset: str | None = None
     metrics: str | None = None
@@ -219,6 +256,25 @@ class ExperimentUpdate(BaseModel):
 
 
 class ExperimentOut(ExperimentBase, ORMModel):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class ProjectCheckpointBase(BaseModel):
+    project_id: int
+    name: str
+    description: str | None = None
+    commit_hash: str
+    experiment_id: int | None = None
+    tags: str | None = None
+
+
+class ProjectCheckpointCreate(ProjectCheckpointBase):
+    pass
+
+
+class ProjectCheckpointOut(ProjectCheckpointBase, ORMModel):
     id: int
     created_at: datetime
     updated_at: datetime
@@ -271,102 +327,50 @@ class GitPushRequest(BaseModel):
     confirm: bool = False
 
 
+class GitStageRequest(BaseModel):
+    files: list[str] = Field(min_length=1)
 
 
-class GeneralSettings(BaseModel):
-    language: str = "zh-CN"
+class GitPullRequest(BaseModel):
+    remote: str = "origin"
+    branch: str | None = None
 
 
-class PathSettings(BaseModel):
-    projects_root: str = "/home/robot"
-    knowledge_root: str = "/home/robot/文档/Obsidian Vault"
-    obsidian_vault: str = "/home/robot/文档/Obsidian Vault"
-    dataset_root: str = "/home/robot/datasets"
-    experiment_root: str = "/home/robot/experiments"
+class ProjectScanRequest(BaseModel):
+    path: str
 
 
-class ObsidianSettings(BaseModel):
-    enabled: bool = False
-    vault_path: str = ""
-    knowledge_root: str = "Knowledge"
-    use_obsidian_uri: bool = True
+class ProjectRegisterRequest(BaseModel):
+    path: str
+    name: str | None = None
+    description: str | None = None
+    status: str = "Active"
+    progress_mode: str = "AUTO"
+    tags: str | None = None
 
 
-class ZoteroSettings(BaseModel):
-    enabled: bool = False
-    connection_mode: str = "web_api"
-    user_id: str = ""
-    api_key: str | None = None
-    api_key_masked: str | None = None
-    library: str = "My Library"
-
-
-class GitHubSettings(BaseModel):
-    enabled: bool = False
-    username: str = ""
-    personal_access_token: str | None = None
-    personal_access_token_masked: str | None = None
-    default_owner: str = ""
+class ProjectPublishRequest(BaseModel):
+    repository_name: str
+    description: str | None = None
+    visibility: str = "private"
     default_branch: str = "main"
+    initial_commit_message: str = "chore: initial workbench import"
+    confirm_risks: bool = False
 
 
-class IntegrationSettings(BaseModel):
-    obsidian: ObsidianSettings = Field(default_factory=ObsidianSettings)
-    zotero: ZoteroSettings = Field(default_factory=ZoteroSettings)
-    github: GitHubSettings = Field(default_factory=GitHubSettings)
+class VersionRestoreRequest(BaseModel):
+    confirm: bool = False
+    create_backup_branch: bool = True
+
+
+class BranchCreateRequest(BaseModel):
+    name: str
+    commit_hash: str | None = None
+
+
+class SystemSettingsIn(BaseModel):
+    settings: dict[str, Any]
 
 
 class SystemSettingsOut(BaseModel):
-    general: GeneralSettings = Field(default_factory=GeneralSettings)
-    paths: PathSettings = Field(default_factory=PathSettings)
-    integrations: IntegrationSettings = Field(default_factory=IntegrationSettings)
-
-
-class SystemSettingsUpdate(BaseModel):
-    general: GeneralSettings | None = None
-    paths: PathSettings | None = None
-    integrations: IntegrationSettings | None = None
-
-
-class SettingsTestResult(BaseModel):
-    ok: bool
-    message: str
-
-
-class FocusSessionCreate(BaseModel):
-    task_id: int | None = None
-    project_id: int | None = None
-    note: str | None = None
-
-
-class FocusSessionOut(ORMModel):
-    id: int
-    started_at: datetime
-    ended_at: datetime | None = None
-    duration_seconds: int
-    paused_seconds: int
-    status: str
-    task_id: int | None = None
-    project_id: int | None = None
-    note: str | None = None
-    created_at: datetime
-    updated_at: datetime
-    elapsed_seconds: int = 0
-    task_title: str | None = None
-    project_name: str | None = None
-
-
-class FocusStatsOut(BaseModel):
-    range: str
-    duration_seconds: int
-
-
-class DashboardSummaryOut(BaseModel):
-    today: dict[str, Any]
-    projects: dict[str, Any]
-    papers: dict[str, Any]
-    experiments: dict[str, Any]
-    knowledge: dict[str, Any]
-    git: dict[str, Any]
-    focus: dict[str, Any]
-    attention: list[dict[str, Any]]
+    settings: dict[str, Any]
