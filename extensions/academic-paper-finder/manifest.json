@@ -1,0 +1,77 @@
+{
+  "manifest_version": 2,
+  "name": "RoboResearch PDF Capture",
+  "version": "0.1.5",
+  "description": "RoboResearch Workbench 的 Firefox PDF/CARSI 捕获伴侣。",
+  "permissions": [
+    "tabs",
+    "storage",
+    "http://127.0.0.1/*",
+    "http://localhost/*",
+    "https://doi.org/*",
+    "https://ieeexplore.ieee.org/*",
+    "https://arxiv.org/*",
+    "https://*.arxiv.org/*",
+    "https://www.science.org/*",
+    "https://science.org/*",
+    "https://*.science.org/*",
+    "https://researchsquare.com/*",
+    "https://www.researchsquare.com/*",
+    "https://assets.researchsquare.com/*",
+    "https://assets-eu.researchsquare.com/*",
+    "https://www.preprints.org/*",
+    "https://preprints.org/*",
+    "https://*.preprints.org/*",
+    "https://d1bxh8uas1mnw7.cloudfront.net/*",
+    "notifications"
+  ],
+  "browser_action": {
+    "default_title": "RoboResearch PDF Capture",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "scripts": [
+      "background.js"
+    ]
+  },
+  "options_ui": {
+    "page": "app.html",
+    "open_in_tab": true
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://doi.org/*",
+        "https://ieeexplore.ieee.org/*",
+        "https://arxiv.org/*",
+        "https://*.arxiv.org/*",
+        "https://www.science.org/*",
+        "https://science.org/*",
+        "https://*.science.org/*",
+        "https://www.researchsquare.com/*",
+        "https://assets.researchsquare.com/*",
+        "https://assets-eu.researchsquare.com/*",
+        "https://researchsquare.com/*",
+        "https://assets-eu.researchsquare.com/*",
+        "https://www.preprints.org/*",
+        "https://preprints.org/*",
+        "https://*.preprints.org/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "academic-paper-finder@example.local",
+      "strict_min_version": "142.0",
+      "data_collection_permissions": {
+        "required": [
+          "none"
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>学术论文检索助手</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <header>
+          <h1>论文检索助手</h1>
+          <p id="apiStatus">检测后台中...</p>
+        </header>
+
+        <section>
+          <h2>来源</h2>
+          <div id="sourceList" class="check-list"></div>
+        </section>
+
+        <section>
+          <h2>时间</h2>
+          <div class="year-grid">
+            <label>从 <input id="fromYear" type="number" value="2020" /></label>
+            <label>到 <input id="toYear" type="number" value="2026" /></label>
+          </div>
+        </section>
+
+        <section>
+          <h2>主题关键词</h2>
+          <textarea id="keywords" rows="8"></textarea>
+        </section>
+      </aside>
+
+      <main class="workspace">
+        <div class="toolbar">
+          <input id="query" type="search" placeholder="例如：embodied intelligence robot task planning world model" />
+          <button id="searchButton">检索</button>
+        </div>
+
+        <div class="summary">
+          <span id="resultCount">0 篇结果</span>
+          <span id="selectedCount">已选择 0 篇</span>
+          <button id="exportButton">加入 Zotero</button>
+        </div>
+
+        <div id="message" class="message"></div>
+        <div id="results" class="results"></div>
+      </main>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
