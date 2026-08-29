@@ -2,10 +2,19 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Table, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
+
+
+paper_knowledge_links = Table(
+    "paper_knowledge_links",
+    Base.metadata,
+    Column("paper_id", ForeignKey("papers.id"), primary_key=True),
+    Column("knowledge_id", ForeignKey("knowledge_links.id"), primary_key=True),
+    Column("created_at", DateTime, default=datetime.utcnow),
+)
 
 
 class TimestampMixin:
@@ -118,15 +127,25 @@ class Paper(Base, TimestampMixin):
     year: Mapped[int | None] = mapped_column(Integer)
     venue: Mapped[str] = mapped_column(String(80), default="Others", index=True)
     tags: Mapped[str | None] = mapped_column(Text)
-    status: Mapped[str] = mapped_column(String(40), default="inbox")
+    status: Mapped[str] = mapped_column(String(40), default="Inbox", index=True)
+    reading_mode: Mapped[str | None] = mapped_column(String(40))
     priority: Mapped[str] = mapped_column(String(40), default="normal")
+    reading_purpose: Mapped[str | None] = mapped_column(String(80))
+    queued_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     doi: Mapped[str | None] = mapped_column(String(200), unique=True)
     url: Mapped[str | None] = mapped_column(String(1000))
     pdf_url: Mapped[str | None] = mapped_column(String(1000))
     zotero_key: Mapped[str | None] = mapped_column(String(80))
+    zotero_item_key: Mapped[str | None] = mapped_column(String(80), index=True)
+    zotero_library: Mapped[str | None] = mapped_column(String(120))
+    zotero_pdf_attached: Mapped[bool] = mapped_column(Boolean, default=False)
+    zotero_pdf_status: Mapped[str | None] = mapped_column(String(80))
+    zotero_synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     related_project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), nullable=True)
 
     reading_notes: Mapped[list["ReadingNote"]] = relationship(back_populates="paper", cascade="all, delete-orphan")
+    related_project: Mapped[Project | None] = relationship()
+    knowledge_links: Mapped[list["KnowledgeLink"]] = relationship(secondary=paper_knowledge_links, back_populates="papers")
 
 
 class ReadingNote(Base, TimestampMixin):
@@ -137,10 +156,17 @@ class ReadingNote(Base, TimestampMixin):
     title: Mapped[str] = mapped_column(String(400))
     status: Mapped[str] = mapped_column(String(40), default="draft")
     content: Mapped[str] = mapped_column(Text, default="")
+    content_markdown: Mapped[str] = mapped_column(Text, default="")
+    reading_status_snapshot: Mapped[str | None] = mapped_column(String(40))
+    reading_mode: Mapped[str | None] = mapped_column(String(40))
+    one_sentence_summary: Mapped[str | None] = mapped_column(Text)
+    relevance_to_me: Mapped[str | None] = mapped_column(Text)
     extracted_knowledge: Mapped[str | None] = mapped_column(Text)
     idea: Mapped[str | None] = mapped_column(Text)
+    related_project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), nullable=True)
 
     paper: Mapped[Paper | None] = relationship(back_populates="reading_notes")
+    related_project: Mapped[Project | None] = relationship()
 
 
 class ResearchIdea(Base, TimestampMixin):
@@ -151,6 +177,9 @@ class ResearchIdea(Base, TimestampMixin):
     source: Mapped[str | None] = mapped_column(String(200))
     status: Mapped[str] = mapped_column(String(40), default="candidate")
     content: Mapped[str] = mapped_column(Text, default="")
+    source_paper_id: Mapped[int | None] = mapped_column(ForeignKey("papers.id"), nullable=True)
+    source_reading_note_id: Mapped[int | None] = mapped_column(ForeignKey("reading_notes.id"), nullable=True)
+    related_project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), nullable=True)
 
 
 class Experiment(Base, TimestampMixin):
@@ -196,6 +225,7 @@ class KnowledgeLink(Base, TimestampMixin):
     vault_path: Mapped[str | None] = mapped_column(String(1000))
     tags: Mapped[str | None] = mapped_column(Text)
     notes: Mapped[str | None] = mapped_column(Text)
+    papers: Mapped[list[Paper]] = relationship(secondary=paper_knowledge_links, back_populates="knowledge_links")
 
 
 class DashboardLayout(Base, TimestampMixin):
@@ -229,9 +259,15 @@ class FocusSession(Base, TimestampMixin):
     paused_seconds: Mapped[int] = mapped_column(Integer, default=0)
     paused_started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     status: Mapped[str] = mapped_column(String(40), default="RUNNING", index=True)
+    focus_type: Mapped[str | None] = mapped_column(String(80))
+    context_type: Mapped[str | None] = mapped_column(String(80))
     task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id"), nullable=True)
     project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), nullable=True)
+    paper_id: Mapped[int | None] = mapped_column(ForeignKey("papers.id"), nullable=True)
+    reading_note_id: Mapped[int | None] = mapped_column(ForeignKey("reading_notes.id"), nullable=True)
     note: Mapped[str | None] = mapped_column(Text)
 
     task: Mapped[Task | None] = relationship(back_populates="focus_sessions")
     project: Mapped[Project | None] = relationship()
+    paper: Mapped[Paper | None] = relationship()
+    reading_note: Mapped[ReadingNote | None] = relationship()

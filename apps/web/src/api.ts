@@ -28,7 +28,7 @@ export const api = {
   }),
   testSettings: (integration: string) => request<{ ok: boolean; message: string }>(`/api/settings/test/${integration}`, { method: "POST" }),
   currentFocus: () => request<{ current_session: FocusSession | null }>("/api/focus/current"),
-  startFocus: (payload: { task_id?: number | null; project_id?: number | null; note?: string | null }) => request<FocusSession>("/api/focus/start", {
+  startFocus: (payload: { task_id?: number | null; project_id?: number | null; paper_id?: number | null; reading_note_id?: number | null; focus_type?: string | null; context_type?: string | null; note?: string | null }) => request<FocusSession>("/api/focus/start", {
     method: "POST",
     body: JSON.stringify(payload),
   }),
@@ -143,11 +143,44 @@ export const api = {
     body: JSON.stringify(payload),
   }),
   deleteProgressLog: (id: number) => request<{ ok: boolean }>(`/project-progress/${id}`, { method: "DELETE" }),
-  papers: (venue?: string) => request<Paper[]>(`/papers${venue ? `?venue=${encodeURIComponent(venue)}` : ""}`),
+  papers: (params?: { venue?: string; status?: string; queue?: boolean }) => {
+    const query = new URLSearchParams();
+    if (params?.venue) query.set("venue", params.venue);
+    if (params?.status) query.set("status", params.status);
+    if (params?.queue) query.set("queue", "true");
+    return request<Paper[]>(`/papers${query.toString() ? `?${query.toString()}` : ""}`);
+  },
   savePaper: (paper: Partial<Paper>) => request<Paper>("/papers", {
     method: "POST",
     body: JSON.stringify(paper),
   }),
+  saveCandidate: (paper: SearchPaper, options?: { priority?: string; reading_purpose?: string | null; related_project_id?: number | null }) => request<Paper>("/papers/candidate", {
+    method: "POST",
+    body: JSON.stringify({ paper, ...(options ?? {}) }),
+  }),
+  addToLibrary: (paper: SearchPaper, options?: { priority?: string; reading_purpose?: string | null; related_project_id?: number | null }) => request<Paper>("/papers/library", {
+    method: "POST",
+    body: JSON.stringify({ paper, ...(options ?? {}) }),
+  }),
+  addManyToLibrary: (papers: SearchPaper[], options?: { priority?: string; reading_purpose?: string | null; related_project_id?: number | null }) => request<Paper[]>("/papers/library/batch", {
+    method: "POST",
+    body: JSON.stringify({ papers, ...(options ?? {}) }),
+  }),
+  updatePaper: (id: number, payload: Partial<Paper>) => request<Paper>(`/papers/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  }),
+  queuePaper: (id: number, payload: { priority?: string; reading_purpose?: string; related_project_id?: number | null; reading_mode?: string | null }) => request<Paper>(`/papers/${id}/queue`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }),
+  addExistingPaperToZotero: (id: number) => request<Paper>(`/papers/${id}/zotero`, { method: "POST" }),
+  attachPaperPdf: (id: number, payload: { content_base64: string; filename?: string | null; content_type?: string | null; pdf_url?: string | null }) => request<Paper>(`/papers/${id}/attach-pdf`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }),
+  syncZoteroPapers: () => request<{ status: string; synced: number; failed: Array<{ item_key: string; title: string; error: string }>; message: string }>("/zotero/sync", { method: "POST" }),
+  paperDetail: (id: number) => request<any>(`/papers/${id}/detail`),
   searchPapers: (payload: any) => request<{ papers: SearchPaper[] }>("/papers/search", {
     method: "POST",
     body: JSON.stringify(payload),
@@ -156,11 +189,17 @@ export const api = {
     method: "POST",
     body: JSON.stringify({ collection_root: "Embodied Intelligence Papers", papers }),
   }),
-  notes: () => request<ReadingNote[]>("/reading-notes"),
+  notes: (paperId?: number) => request<ReadingNote[]>(`/reading-notes${paperId ? `?paper_id=${paperId}` : ""}`),
   createNote: (note: Partial<ReadingNote>) => request<ReadingNote>("/reading-notes", {
     method: "POST",
     body: JSON.stringify(note),
   }),
+  createPaperNote: (paperId: number) => request<ReadingNote>(`/papers/${paperId}/reading-note`, { method: "POST" }),
+  updateNote: (id: number, payload: Partial<ReadingNote>) => request<ReadingNote>(`/reading-notes/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  }),
+  exportNote: (id: number) => request<{ filename: string; content: string }>(`/reading-notes/${id}/export`),
   experiments: () => request<Experiment[]>("/experiments"),
   createExperiment: (experiment: Partial<Experiment>) => request<Experiment>("/experiments", {
     method: "POST",

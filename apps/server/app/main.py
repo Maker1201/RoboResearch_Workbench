@@ -1,22 +1,23 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import func, inspect, text
+from sqlalchemy import func, inspect, or_, text
 from sqlalchemy.orm import Session
 
 from . import crud, git_service, github_service, models, project_progress_service, project_scanner_service, schemas, settings_service
 from .database import Base, engine, get_db
 from .paper_integrations.crossref import search_crossref
-from .paper_integrations.models import SearchRequest, SearchResponse, ZoteroAttachPdfRequest, ZoteroImportRequest
+from .paper_integrations.models import Paper as SearchPaperModel, SearchRequest, SearchResponse, ZoteroAttachPdfRequest, ZoteroImportRequest
 from .paper_integrations.openalex import search_openalex
 from .paper_integrations.translator import translate_papers, translation_status
-from .paper_integrations.zotero import attach_pdf_to_zotero, import_to_zotero, zotero_status
+from .paper_integrations.zotero import attach_pdf_to_zotero, get_zotero_item_sync_state, import_to_zotero, zotero_status
 
 app = FastAPI(title="RoboResearch Workbench Local API")
 
@@ -72,6 +73,57 @@ def migrate_schema() -> None:
             columns = {column["name"] for column in inspector.get_columns("experiments")}
             if "git_branch" not in columns:
                 conn.execute(text("ALTER TABLE experiments ADD COLUMN git_branch VARCHAR(200)"))
+        if "papers" in existing_tables:
+            columns = {column["name"] for column in inspector.get_columns("papers")}
+            additions = {
+                "reading_mode": "VARCHAR(40)",
+                "reading_purpose": "VARCHAR(80)",
+                "queued_at": "DATETIME",
+                "zotero_item_key": "VARCHAR(80)",
+                "zotero_library": "VARCHAR(120)",
+                "zotero_pdf_attached": "BOOLEAN DEFAULT 0",
+                "zotero_pdf_status": "VARCHAR(80)",
+                "zotero_synced_at": "DATETIME",
+            }
+            for name, ddl in additions.items():
+                if name not in columns:
+                    conn.execute(text(f"ALTER TABLE papers ADD COLUMN {name} {ddl}"))
+        if "reading_notes" in existing_tables:
+            columns = {column["name"] for column in inspector.get_columns("reading_notes")}
+            additions = {
+                "content_markdown": "TEXT DEFAULT ''",
+                "reading_status_snapshot": "VARCHAR(40)",
+                "reading_mode": "VARCHAR(40)",
+                "one_sentence_summary": "TEXT",
+                "relevance_to_me": "TEXT",
+                "related_project_id": "INTEGER",
+            }
+            for name, ddl in additions.items():
+                if name not in columns:
+                    conn.execute(text(f"ALTER TABLE reading_notes ADD COLUMN {name} {ddl}"))
+            if "content_markdown" not in columns:
+                conn.execute(text("UPDATE reading_notes SET content_markdown = COALESCE(content, '')"))
+        if "research_ideas" in existing_tables:
+            columns = {column["name"] for column in inspector.get_columns("research_ideas")}
+            additions = {
+                "source_paper_id": "INTEGER",
+                "source_reading_note_id": "INTEGER",
+                "related_project_id": "INTEGER",
+            }
+            for name, ddl in additions.items():
+                if name not in columns:
+                    conn.execute(text(f"ALTER TABLE research_ideas ADD COLUMN {name} {ddl}"))
+        if "focus_sessions" in existing_tables:
+            columns = {column["name"] for column in inspector.get_columns("focus_sessions")}
+            additions = {
+                "focus_type": "VARCHAR(80)",
+                "context_type": "VARCHAR(80)",
+                "paper_id": "INTEGER",
+                "reading_note_id": "INTEGER",
+            }
+            for name, ddl in additions.items():
+                if name not in columns:
+                    conn.execute(text(f"ALTER TABLE focus_sessions ADD COLUMN {name} {ddl}"))
 
 
 def seed_defaults() -> None:
@@ -146,6 +198,204 @@ def normalize_project_status(value: str | None) -> str:
         return "Active"
     mapping = {item.lower(): item for item in schemas.PROJECT_STATUSES}
     return mapping.get(value.lower(), value)
+
+
+def normalize_paper_status(value: str | None) -> str:
+    if not value:
+        return "Inbox"
+    aliases = {"inbox": "Inbox", "candidate": "Candidate", "to_read": "To Read", "to read": "To Read", "skimming": "Skimming", "reading": "Reading", "deep_reading": "Deep Reading", "deep reading": "Deep Reading", "finished": "Finished", "reference": "Reference", "dropped": "Dropped"}
+    return aliases.get(value.strip().lower(), value)
+
+
+def normalize_reading_mode(value: str | None) -> str | None:
+    if not value:
+        return None
+    upper = value.strip().upper().replace(" ", "_")
+    mapping = {"SCANNING": "SCAN", "SKIMMING": "SKIM", "READING": "READ", "DEEP_READING": "DEEP"}
+    return mapping.get(upper, upper if upper in schemas.READING_MODES else value)
+
+
+def reading_note_template(paper: models.Paper | None = None) -> str:
+    title = paper.title if paper else "Untitled Paper"
+    return f"""# Reading Note: {title}
+
+## 1. Why did I read this?
+
+## 2. One Sentence Summary
+
+## 3. Problem
+
+## 4. Core Idea
+
+## 5. Architecture
+
+## 6. Key Technical Details
+
+## 7. Experiments
+
+## 8. What is actually useful to me?
+
+## 9. Limitations
+
+## 10. Questions
+
+## 11. Ideas
+
+## 12. Knowledge to Extract
+"""
+
+
+def normalize_doi(doi: str | None) -> str | None:
+    if not doi:
+        return None
+    return doi.strip().lower().removeprefix("https://doi.org/").removeprefix("http://doi.org/").removeprefix("doi:").strip() or None
+
+
+def title_year_key(title: str | None, year: int | None) -> str | None:
+    if not title:
+        return None
+    normalized_title = re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", title.lower())).strip()
+    return f"{normalized_title}|{year or ''}" if normalized_title else None
+
+
+def find_existing_paper(db: Session, title: str, year: int | None, doi: str | None) -> models.Paper | None:
+    normalized = normalize_doi(doi)
+    if normalized:
+        existing = db.query(models.Paper).filter(func.lower(models.Paper.doi) == normalized).first()
+        if existing:
+            return existing
+    key = title_year_key(title, year)
+    if not key:
+        return None
+    for paper in db.query(models.Paper).filter(models.Paper.year == year).all():
+        if title_year_key(paper.title, paper.year) == key:
+            return paper
+    return None
+
+
+def normalize_venue(value: str | None) -> str:
+    if not value:
+        return "Others"
+    lower = value.lower()
+    if "icra" in lower:
+        return "ICRA"
+    if "iros" in lower:
+        return "IROS"
+    if "robotics and automation letters" in lower or "ra-l" in lower or "ral" == lower.strip():
+        return "RA-L"
+    if "transactions on robotics" in lower or "t-ro" in lower or "tro" == lower.strip():
+        return "T-RO"
+    if "science robotics" in lower:
+        return "Science Robotics"
+    return value if value in {"ICRA", "IROS", "RA-L", "T-RO", "Science Robotics"} else "Others"
+
+
+def search_paper_to_db_payload(paper: SearchPaperModel | dict[str, Any], status: str = "Candidate") -> dict[str, Any]:
+    model = paper if isinstance(paper, SearchPaperModel) else SearchPaperModel.model_validate(paper)
+    return {
+        "title": model.title,
+        "translated_title": model.translated_title,
+        "abstract": model.abstract,
+        "translated_abstract": model.translated_abstract,
+        "authors": ", ".join(model.authors),
+        "year": model.year,
+        "venue": normalize_venue(model.source_label or model.venue),
+        "tags": ", ".join(model.matched_keywords),
+        "doi": normalize_doi(model.doi),
+        "url": model.url,
+        "pdf_url": model.pdf_url,
+        "status": status,
+    }
+
+
+def merge_search_papers(current: SearchPaperModel, incoming: SearchPaperModel) -> SearchPaperModel:
+    winner = incoming if incoming.relevance > current.relevance else current
+    other = current if winner is incoming else incoming
+    updates: dict[str, Any] = {}
+    for field in ("pdf_url", "url", "abstract", "translated_abstract", "translated_title", "doi", "venue", "source_label"):
+        if not getattr(winner, field) and getattr(other, field):
+            updates[field] = getattr(other, field)
+    if not winner.is_oa and other.is_oa:
+        updates["is_oa"] = True
+    keywords = list(dict.fromkeys([*(winner.matched_keywords or []), *(other.matched_keywords or [])]))
+    if keywords != winner.matched_keywords:
+        updates["matched_keywords"] = keywords
+    return winner.model_copy(update=updates) if updates else winner
+
+
+def db_paper_to_search_model(paper: models.Paper) -> SearchPaperModel:
+    tags = [tag.strip() for tag in (paper.tags or "").split(",") if tag.strip()]
+    authors = [author.strip() for author in (paper.authors or "").split(",") if author.strip()]
+    return SearchPaperModel(
+        id=paper.doi or paper.url or f"workbench:{paper.id}",
+        title=paper.title,
+        translated_title=paper.translated_title,
+        abstract=paper.abstract,
+        translated_abstract=paper.translated_abstract,
+        authors=authors,
+        year=paper.year,
+        venue=paper.venue,
+        source_id=paper.venue,
+        source_label=paper.venue,
+        doi=paper.doi,
+        url=paper.url,
+        pdf_url=paper.pdf_url,
+        is_oa=bool(paper.pdf_url),
+        matched_keywords=tags,
+    )
+
+
+def upsert_paper(db: Session, data: dict[str, Any]) -> models.Paper:
+    existing = find_existing_paper(db, data["title"], data.get("year"), data.get("doi"))
+    if existing:
+        for key, value in data.items():
+            if value is not None and (key != "status" or existing.status in {"inbox", "Inbox", "Candidate"}):
+                setattr(existing, key, value)
+        db.commit()
+        db.refresh(existing)
+        return existing
+    item = models.Paper(**data)
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+def zotero_item_result(zotero_result: dict, index: int = 0) -> dict[str, Any]:
+    for item in zotero_result.get("item_results") or []:
+        if item.get("index") == index:
+            return item
+    item_keys = zotero_result.get("item_keys") or []
+    item_key = item_keys[index] if len(item_keys) > index else None
+    return {"item_key": item_key, "pdf_attached": False, "pdf_status": "unknown"}
+
+
+def apply_zotero_import_result_to_payload(db: Session, data: dict[str, Any], zotero_result: dict, index: int = 0) -> None:
+    item = zotero_item_result(zotero_result, index)
+    item_key = item.get("item_key")
+    if item_key:
+        data["zotero_item_key"] = item_key
+        data["zotero_key"] = item_key
+    data["zotero_library"] = setting_value(db, "integrations.zotero.library") or "My Library"
+    data["zotero_pdf_attached"] = bool(item.get("pdf_attached"))
+    data["zotero_pdf_status"] = item.get("pdf_status") or "unknown"
+    data["zotero_synced_at"] = datetime.utcnow()
+
+
+def apply_zotero_import_result_to_paper(db: Session, paper: models.Paper, zotero_result: dict, index: int = 0) -> None:
+    data: dict[str, Any] = {}
+    apply_zotero_import_result_to_payload(db, data, zotero_result, index)
+    for key, value in data.items():
+        setattr(paper, key, value)
+
+
+def safe_markdown_filename(title: str) -> str:
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", title).strip("-._").lower()[:100]
+    return f"{slug or 'reading-note'}.md"
+
+
+def note_content(note: models.ReadingNote) -> str:
+    return note.content_markdown or note.content or ""
 
 
 def project_or_404(db: Session, project_id: int) -> models.Project:
@@ -602,8 +852,7 @@ async def search_papers(request: SearchRequest) -> SearchResponse:
     for paper in [*crossref_papers, *openalex_papers]:
         key = (paper.doi or paper.id).lower()
         current = papers_by_key.get(key)
-        if current is None or paper.relevance >= current.relevance:
-            papers_by_key[key] = paper
+        papers_by_key[key] = merge_search_papers(current, paper) if current else paper
     papers = sorted(papers_by_key.values(), key=lambda paper: (paper.relevance, paper.year or 0), reverse=True)
     return SearchResponse(papers=await translate_papers(papers))
 
@@ -630,21 +879,195 @@ async def get_zotero_status() -> dict:
 
 
 @app.get("/papers", response_model=list[schemas.PaperOut])
-def list_papers(venue: str | None = None, db: Session = Depends(get_db)):
+def list_papers(venue: str | None = None, status: str | None = None, queue: bool = False, db: Session = Depends(get_db)):
     query = db.query(models.Paper)
     if venue:
         query = query.filter(models.Paper.venue == venue)
-    return query.order_by(models.Paper.id.desc()).limit(300).all()
+    if status:
+        query = query.filter(func.lower(models.Paper.status) == normalize_paper_status(status).lower())
+    if queue:
+        query = query.filter(models.Paper.queued_at.is_not(None))
+        query = query.order_by(models.Paper.priority.asc(), models.Paper.queued_at.asc())
+    else:
+        query = query.order_by(models.Paper.updated_at.desc())
+    return query.limit(300).all()
 
 
 @app.post("/papers", response_model=schemas.PaperOut)
 def create_paper(payload: schemas.PaperCreate, db: Session = Depends(get_db)):
-    return crud.create_item(db, models.Paper, payload)
+    data = payload.model_dump()
+    data["status"] = normalize_paper_status(data.get("status"))
+    data["reading_mode"] = normalize_reading_mode(data.get("reading_mode"))
+    data["doi"] = normalize_doi(data.get("doi"))
+    data["venue"] = normalize_venue(data.get("venue"))
+    return upsert_paper(db, data)
+
+
+@app.post("/papers/candidate", response_model=schemas.PaperOut)
+def save_candidate(payload: schemas.PaperLibraryImportRequest, db: Session = Depends(get_db)):
+    data = search_paper_to_db_payload(payload.paper, "Candidate")
+    data["priority"] = payload.priority
+    data["reading_purpose"] = payload.reading_purpose
+    data["related_project_id"] = payload.related_project_id
+    if payload.related_project_id is not None:
+        crud.get_item(db, models.Project, payload.related_project_id)
+    return upsert_paper(db, data)
+
+
+@app.post("/papers/library", response_model=schemas.PaperOut)
+async def add_to_library(payload: schemas.PaperLibraryImportRequest, db: Session = Depends(get_db)):
+    search_model = SearchPaperModel.model_validate(payload.paper)
+    try:
+        zotero_result = await import_to_zotero(ZoteroImportRequest(papers=[search_model]))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    data = search_paper_to_db_payload(search_model, "To Read")
+    data["priority"] = payload.priority
+    data["reading_purpose"] = payload.reading_purpose
+    data["related_project_id"] = payload.related_project_id
+    if payload.related_project_id is not None:
+        crud.get_item(db, models.Project, payload.related_project_id)
+    apply_zotero_import_result_to_payload(db, data, zotero_result, 0)
+    return upsert_paper(db, data)
+
+
+@app.post("/papers/library/batch", response_model=list[schemas.PaperOut])
+async def add_to_library_batch(payload: schemas.PaperLibraryBatchImportRequest, db: Session = Depends(get_db)):
+    if not payload.papers:
+        return []
+    if payload.related_project_id is not None:
+        crud.get_item(db, models.Project, payload.related_project_id)
+
+    search_models = [SearchPaperModel.model_validate(paper) for paper in payload.papers]
+    try:
+        zotero_result = await import_to_zotero(ZoteroImportRequest(papers=search_models))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    saved: list[models.Paper] = []
+    for index, search_model in enumerate(search_models):
+        data = search_paper_to_db_payload(search_model, "To Read")
+        data["priority"] = payload.priority
+        data["reading_purpose"] = payload.reading_purpose
+        data["related_project_id"] = payload.related_project_id
+        apply_zotero_import_result_to_payload(db, data, zotero_result, index)
+        saved.append(upsert_paper(db, data))
+    return saved
+
+
+@app.post("/papers/{paper_id}/attach-pdf", response_model=schemas.PaperOut)
+async def attach_pdf_to_paper(paper_id: int, payload: schemas.PaperPdfAttachRequest, db: Session = Depends(get_db)):
+    paper = crud.get_item(db, models.Paper, paper_id)
+    item_key = paper.zotero_item_key or paper.zotero_key
+    if not item_key:
+        raise HTTPException(status_code=400, detail="该文献尚未关联 Zotero 条目，不能挂载 PDF。")
+    try:
+        result = await attach_pdf_to_zotero(ZoteroAttachPdfRequest(
+            item_key=item_key,
+            pdf_url=payload.pdf_url or paper.pdf_url or paper.url,
+            filename=payload.filename or f"{paper.title}.pdf",
+            content_type=payload.content_type or "application/pdf",
+            content_base64=payload.content_base64,
+        ))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if result.get("status") in {"ok", "skipped"}:
+        paper.zotero_pdf_attached = True
+        paper.zotero_pdf_status = "attached"
+        paper.zotero_synced_at = datetime.utcnow()
+        db.commit()
+        db.refresh(paper)
+    return paper
 
 
 @app.patch("/papers/{paper_id}", response_model=schemas.PaperOut)
 def update_paper(paper_id: int, payload: schemas.PaperUpdate, db: Session = Depends(get_db)):
+    if payload.status is not None:
+        payload.status = normalize_paper_status(payload.status)
+    if payload.reading_mode is not None:
+        payload.reading_mode = normalize_reading_mode(payload.reading_mode)
+    if payload.doi is not None:
+        payload.doi = normalize_doi(payload.doi)
     return crud.update_item(db, models.Paper, paper_id, payload)
+
+
+@app.post("/papers/{paper_id}/zotero", response_model=schemas.PaperOut)
+async def add_existing_paper_to_zotero(paper_id: int, db: Session = Depends(get_db)):
+    paper = crud.get_item(db, models.Paper, paper_id)
+    zotero_result = await import_to_zotero(ZoteroImportRequest(papers=[db_paper_to_search_model(paper)]))
+    apply_zotero_import_result_to_paper(db, paper, zotero_result, 0)
+    paper.status = "To Read"
+    db.commit()
+    db.refresh(paper)
+    return paper
+
+
+@app.post("/zotero/sync")
+async def sync_zotero_papers(db: Session = Depends(get_db)) -> dict:
+    papers = db.query(models.Paper).filter(or_(models.Paper.zotero_item_key.is_not(None), models.Paper.zotero_key.is_not(None))).all()
+    synced = 0
+    failed: list[dict[str, str]] = []
+    for paper in papers:
+        item_key = paper.zotero_item_key or paper.zotero_key
+        if not item_key:
+            continue
+        try:
+            state = await get_zotero_item_sync_state(item_key)
+        except Exception as exc:
+            failed.append({"item_key": item_key, "title": paper.title, "error": str(exc)})
+            continue
+        paper.zotero_pdf_attached = bool(state.get("pdf_attached"))
+        paper.zotero_pdf_status = "attached" if paper.zotero_pdf_attached else "missing_in_zotero"
+        paper.zotero_synced_at = datetime.utcnow()
+        if state.get("title"):
+            paper.title = state["title"]
+        if state.get("doi"):
+            synced_doi = normalize_doi(state["doi"])
+            duplicate = db.query(models.Paper).filter(models.Paper.doi == synced_doi, models.Paper.id != paper.id).first() if synced_doi else None
+            if synced_doi and duplicate is None:
+                paper.doi = synced_doi
+        if state.get("url"):
+            paper.url = state["url"]
+        if state.get("abstract") and not paper.abstract:
+            paper.abstract = state["abstract"]
+        if state.get("year"):
+            paper.year = state["year"]
+        if state.get("venue"):
+            paper.venue = normalize_venue(state["venue"])
+        synced += 1
+    db.commit()
+    return {"status": "ok", "synced": synced, "failed": failed, "message": f"已同步 Zotero：{synced} 篇文献。"}
+
+
+@app.post("/papers/{paper_id}/queue", response_model=schemas.PaperOut)
+def queue_paper(paper_id: int, payload: schemas.PaperQueueRequest, db: Session = Depends(get_db)):
+    paper = crud.get_item(db, models.Paper, paper_id)
+    if payload.related_project_id is not None:
+        crud.get_item(db, models.Project, payload.related_project_id)
+    paper.status = "To Read" if normalize_paper_status(paper.status) in {"Inbox", "Candidate"} else normalize_paper_status(paper.status)
+    paper.priority = payload.priority
+    paper.reading_purpose = payload.reading_purpose
+    paper.related_project_id = payload.related_project_id
+    paper.reading_mode = normalize_reading_mode(payload.reading_mode)
+    paper.queued_at = paper.queued_at or datetime.utcnow()
+    db.commit()
+    db.refresh(paper)
+    return paper
+
+
+@app.get("/papers/{paper_id}/detail")
+def paper_detail(paper_id: int, db: Session = Depends(get_db)) -> dict:
+    paper = crud.get_item(db, models.Paper, paper_id)
+    notes = db.query(models.ReadingNote).filter(models.ReadingNote.paper_id == paper_id).order_by(models.ReadingNote.updated_at.desc()).all()
+    sessions = db.query(models.FocusSession).filter(models.FocusSession.paper_id == paper_id, models.FocusSession.status != "CANCELLED").all()
+    knowledge = [{"id": item.id, "title": item.title, "area": item.area} for item in paper.knowledge_links]
+    return {
+        "paper": schemas.PaperOut.model_validate(paper).model_dump(mode="json"),
+        "reading_notes": [schemas.ReadingNoteOut.model_validate(note).model_dump(mode="json") for note in notes],
+        "reading_time_seconds": sum(focus_elapsed_seconds(session) for session in sessions),
+        "knowledge_links": knowledge,
+    }
 
 
 @app.delete("/papers/{paper_id}")
@@ -653,18 +1076,88 @@ def delete_paper(paper_id: int, db: Session = Depends(get_db)):
 
 
 @app.get("/reading-notes", response_model=list[schemas.ReadingNoteOut])
-def list_reading_notes(db: Session = Depends(get_db)):
-    return crud.list_items(db, models.ReadingNote)
+def list_reading_notes(paper_id: int | None = None, db: Session = Depends(get_db)):
+    query = db.query(models.ReadingNote)
+    if paper_id is not None:
+        query = query.filter(models.ReadingNote.paper_id == paper_id)
+    return query.order_by(models.ReadingNote.updated_at.desc()).limit(300).all()
 
 
 @app.post("/reading-notes", response_model=schemas.ReadingNoteOut)
 def create_reading_note(payload: schemas.ReadingNoteCreate, db: Session = Depends(get_db)):
-    return crud.create_item(db, models.ReadingNote, payload)
+    data = payload.model_dump()
+    paper = db.get(models.Paper, data["paper_id"]) if data.get("paper_id") else None
+    if data.get("paper_id") and not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+    if not data.get("content_markdown") and data.get("content"):
+        data["content_markdown"] = data["content"]
+    if not data.get("content_markdown"):
+        data["content_markdown"] = reading_note_template(paper)
+    data["content"] = data.get("content_markdown") or data.get("content") or ""
+    if paper:
+        data["reading_status_snapshot"] = data.get("reading_status_snapshot") or paper.status
+        data["reading_mode"] = data.get("reading_mode") or paper.reading_mode
+        data["related_project_id"] = data.get("related_project_id") or paper.related_project_id
+    item = models.ReadingNote(**data)
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+@app.post("/papers/{paper_id}/reading-note", response_model=schemas.ReadingNoteOut)
+def create_or_get_paper_note(paper_id: int, db: Session = Depends(get_db)):
+    paper = crud.get_item(db, models.Paper, paper_id)
+    existing = db.query(models.ReadingNote).filter(models.ReadingNote.paper_id == paper_id).order_by(models.ReadingNote.updated_at.desc()).first()
+    if existing:
+        return existing
+    item = models.ReadingNote(
+        paper_id=paper.id,
+        title=f"Reading Note - {paper.title[:220]}",
+        status="draft",
+        content=reading_note_template(paper),
+        content_markdown=reading_note_template(paper),
+        reading_status_snapshot=paper.status,
+        reading_mode=paper.reading_mode,
+        related_project_id=paper.related_project_id,
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item
 
 
 @app.patch("/reading-notes/{note_id}", response_model=schemas.ReadingNoteOut)
 def update_reading_note(note_id: int, payload: schemas.ReadingNoteUpdate, db: Session = Depends(get_db)):
-    return crud.update_item(db, models.ReadingNote, note_id, payload)
+    item = crud.get_item(db, models.ReadingNote, note_id)
+    data = payload.model_dump(exclude_unset=True)
+    if "content_markdown" in data and "content" not in data:
+        data["content"] = data["content_markdown"]
+    if "content" in data and "content_markdown" not in data:
+        data["content_markdown"] = data["content"]
+    for key, value in data.items():
+        setattr(item, key, value)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+@app.get("/reading-notes/{note_id}/export", response_model=schemas.ReadingNoteExportOut)
+def export_reading_note(note_id: int, db: Session = Depends(get_db)):
+    note = crud.get_item(db, models.ReadingNote, note_id)
+    paper = note.paper
+    title = paper.title if paper else note.title
+    metadata = [
+        "---",
+        f"title: {title}",
+        f"paper_id: {note.paper_id or ''}",
+        f"zotero_item_key: {(paper.zotero_item_key or paper.zotero_key) if paper else ''}",
+        f"reading_status: {note.reading_status_snapshot or (paper.status if paper else '')}",
+        f"reading_mode: {note.reading_mode or (paper.reading_mode if paper else '') or ''}",
+        "---",
+        "",
+    ]
+    return {"filename": safe_markdown_filename(title), "content": "\n".join(metadata) + note_content(note)}
 
 
 @app.delete("/reading-notes/{note_id}")
@@ -714,7 +1207,7 @@ def delete_knowledge_link(knowledge_id: int, db: Session = Depends(get_db)):
 
 # Compatibility APIs kept from the Dashboard/Settings/Focus phase.
 PROJECT_STATUSES_LOWER = ["planning", "active", "blocked", "paused", "completed", "archived"]
-PAPER_STATUSES = ["inbox", "to_read", "reading", "finished"]
+PAPER_STATUSES = ["Inbox", "Candidate", "To Read", "Skimming", "Reading", "Deep Reading", "Finished", "Reference", "Dropped"]
 EXPERIMENT_STATUSES = ["running", "pending", "completed", "failed"]
 DASHBOARD_VENUES = ["ICRA", "IROS", "RA-L", "T-RO", "Science Robotics"]
 DEFAULT_FLAT_SETTINGS = {
@@ -876,14 +1369,20 @@ def focus_out(session: models.FocusSession | None) -> dict[str, Any] | None:
         "duration_seconds": session.duration_seconds,
         "paused_seconds": session.paused_seconds,
         "status": session.status,
+        "focus_type": session.focus_type,
+        "context_type": session.context_type,
         "task_id": session.task_id,
         "project_id": session.project_id,
+        "paper_id": session.paper_id,
+        "reading_note_id": session.reading_note_id,
         "note": session.note,
         "created_at": session.created_at.isoformat(),
         "updated_at": session.updated_at.isoformat(),
         "elapsed_seconds": focus_elapsed_seconds(session),
         "task_title": session.task.title if session.task else None,
         "project_name": session.project.name if session.project else None,
+        "paper_title": session.paper.title if session.paper else None,
+        "reading_note_title": session.reading_note.title if session.reading_note else None,
     }
 
 
@@ -933,10 +1432,17 @@ def build_dashboard_summary_payload(db: Session) -> dict[str, Any]:
     papers = db.query(models.Paper).order_by(models.Paper.updated_at.desc()).all()
     paper_status_counts = {status: 0 for status in PAPER_STATUSES}
     venue_counts = {venue: 0 for venue in DASHBOARD_VENUES}
+    currently_reading = []
+    recently_finished = []
     for paper in papers:
-        paper_status_counts[(paper.status or "inbox").lower()] = paper_status_counts.get((paper.status or "inbox").lower(), 0) + 1
+        status = normalize_paper_status(paper.status)
+        paper_status_counts[status] = paper_status_counts.get(status, 0) + 1
         if paper.venue in venue_counts:
             venue_counts[paper.venue] += 1
+        if status in {"Skimming", "Reading", "Deep Reading"}:
+            currently_reading.append({"id": paper.id, "title": paper.title, "venue": paper.venue, "year": paper.year})
+        if status in {"Finished", "Reference"}:
+            recently_finished.append({"id": paper.id, "title": paper.title, "venue": paper.venue, "year": paper.year})
     experiments = db.query(models.Experiment).order_by(models.Experiment.updated_at.desc()).all()
     experiment_counts = {status: 0 for status in EXPERIMENT_STATUSES}
     for experiment in experiments:
@@ -946,7 +1452,7 @@ def build_dashboard_summary_payload(db: Session) -> dict[str, Any]:
     return {
         "today": {"date": today, "tasks": [schemas.TaskOut.model_validate(task).model_dump(mode="json") for task in today_tasks], "completed_tasks": sum(1 for task in today_tasks if task.status == "done"), "total_tasks": len(today_tasks), "completion_rate": 0, "courses": [], "schedule": [], "plan": [task.title for task in today_tasks if task.status != "done"][:5]},
         "projects": {"total": len(projects), "counts": project_counts, "featured": featured[:6]},
-        "papers": {"total": len(papers), "status_counts": paper_status_counts, "venue_counts": venue_counts, "currently_reading": [], "recently_finished": []},
+        "papers": {"total": len(papers), "status_counts": paper_status_counts, "venue_counts": venue_counts, "currently_reading": currently_reading[:6], "recently_finished": recently_finished[:6]},
         "experiments": {"total": len(experiments), "counts": experiment_counts, "running": [], "recent_results": [], "research_ideas_pending": db.query(models.ResearchIdea).filter(models.ResearchIdea.status == "candidate").count(), "research_ideas": []},
         "knowledge": {"obsidian_connected": bool(settings_payload["integrations"]["obsidian"]["enabled"] and settings_payload["integrations"]["obsidian"]["vault_path"]), "total_notes": db.query(models.KnowledgeLink).count(), "updated_this_week": 0, "recently_updated": []},
         "git": {"projects": []},
@@ -981,11 +1487,34 @@ def api_start_focus(payload: dict[str, Any], db: Session = Depends(get_db)) -> d
         raise HTTPException(status_code=409, detail="A focus session is already running or paused")
     task_id = payload.get("task_id")
     project_id = payload.get("project_id")
+    paper_id = payload.get("paper_id")
+    reading_note_id = payload.get("reading_note_id")
     if task_id is not None:
         crud.get_item(db, models.Task, task_id)
     if project_id is not None:
         crud.get_item(db, models.Project, project_id)
-    session = models.FocusSession(task_id=task_id, project_id=project_id, note=payload.get("note"), status="RUNNING", started_at=datetime.utcnow())
+    if paper_id is not None:
+        paper = crud.get_item(db, models.Paper, paper_id)
+        if project_id is None:
+            project_id = paper.related_project_id
+    if reading_note_id is not None:
+        note = crud.get_item(db, models.ReadingNote, reading_note_id)
+        if paper_id is None:
+            paper_id = note.paper_id
+        if project_id is None:
+            project_id = note.related_project_id
+    context_type = payload.get("context_type") or ("PAPER_READING" if paper_id or reading_note_id else None)
+    session = models.FocusSession(
+        task_id=task_id,
+        project_id=project_id,
+        paper_id=paper_id,
+        reading_note_id=reading_note_id,
+        focus_type=payload.get("focus_type") or context_type,
+        context_type=context_type,
+        note=payload.get("note"),
+        status="RUNNING",
+        started_at=datetime.utcnow(),
+    )
     db.add(session)
     db.commit()
     db.refresh(session)

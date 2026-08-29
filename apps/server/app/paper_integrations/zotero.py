@@ -5,8 +5,10 @@ import hashlib
 import re
 import time
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, urlencode, urljoin, urlparse, urlunparse
 import httpx
 
 from .models import Paper, ZoteroAttachPdfRequest, ZoteroImportRequest
@@ -38,6 +40,7 @@ class ZoteroWriteResult:
     pending_pdfs: list[dict[str, str | None]]
     reused: int
     created: int
+    item_results: list[dict[str, Any]]
 
 
 async def zotero_status() -> dict:
@@ -81,7 +84,7 @@ async def import_to_zotero(payload: ZoteroImportRequest) -> dict:
     if result.attached_pdfs:
         message += f"，并挂载 {result.attached_pdfs} 个 PDF"
     if result.skipped_pdfs:
-        message += f"，{result.skipped_pdfs} 个 PDF 已进入 CARSI 获取队列"
+        message += f"，{result.skipped_pdfs} 个 PDF 未自动挂载，可稍后同步或手动获取"
     message += "。"
 
     return {
@@ -99,6 +102,7 @@ async def import_to_zotero(payload: ZoteroImportRequest) -> dict:
         "pending_pdfs": result.pending_pdfs,
         "reused": result.reused,
         "created": result.created,
+        "item_results": result.item_results,
     }
 
 
@@ -223,6 +227,8 @@ async def _create_items(
 ) -> ZoteroWriteResult:
     existing = await _build_existing_item_index(client)
     item_keys_by_index: dict[int, str] = {}
+    reused_by_index: set[int] = set()
+    created_by_index: set[int] = set()
     created = 0
     reused = 0
 
@@ -232,6 +238,7 @@ async def _create_items(
         if existing_key:
             reused += 1
             item_keys_by_index[index] = existing_key
+            reused_by_index.add(index)
             await _ensure_item_in_collection(client, server_id, api_key, existing_key, collection_key)
             continue
 
@@ -249,9 +256,11 @@ async def _create_items(
         if key:
             created += 1
             item_keys_by_index[index] = key
+            created_by_index.add(index)
             _add_to_existing_index(existing, paper, key)
 
     attached_by_index: dict[int, bool] = {}
+    pdf_status_by_index: dict[int, str] = {}
     attached_pdfs = 0
     skipped_pdfs = 0
     for index, paper in enumerate(papers):
@@ -260,19 +269,34 @@ async def _create_items(
             continue
         if await _item_has_pdf_attachment(client, parent_key):
             attached_by_index[index] = True
+            pdf_status_by_index[index] = "attached"
             continue
-        if not paper.pdf_url:
-            attached_by_index[index] = False
-            skipped_pdfs += 1
-            continue
-        ok = await _attach_pdf_from_url(client, server_id, api_key, parent_key, paper)
+        ok, pdf_status = await _attach_pdf_from_url(client, server_id, api_key, parent_key, paper)
         attached_by_index[index] = ok
+        pdf_status_by_index[index] = pdf_status
         if ok:
             attached_pdfs += 1
         else:
             skipped_pdfs += 1
 
     keys = [item_keys_by_index[index] for index in sorted(item_keys_by_index)]
+    item_results = []
+    for index, paper in enumerate(papers):
+        item_key = item_keys_by_index.get(index)
+        if not item_key:
+            item_results.append({"index": index, "title": paper.title, "status": "failed", "item_key": None, "pdf_attached": False, "pdf_status": "item_failed", "reused": False})
+            continue
+        item_results.append({
+            "index": index,
+            "title": paper.title,
+            "doi": paper.doi,
+            "item_key": item_key,
+            "status": "ok",
+            "pdf_attached": bool(attached_by_index.get(index)),
+            "pdf_status": pdf_status_by_index.get(index, "unknown"),
+            "reused": index in reused_by_index,
+            "created": index in created_by_index,
+        })
     pending_pdfs = []
     for index, paper in enumerate(papers):
         parent_key = item_keys_by_index.get(index)
@@ -295,6 +319,7 @@ async def _create_items(
         pending_pdfs=pending_pdfs,
         reused=reused,
         created=created,
+        item_results=item_results,
     )
 
 
@@ -391,21 +416,41 @@ async def _item_has_pdf_attachment(client: httpx.AsyncClient, item_key: str) -> 
     return False
 
 
+async def get_zotero_item_sync_state(item_key: str) -> dict[str, Any]:
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+        server_id = await _get_server_id(client)
+        api_key = await _ensure_api_key(client, server_id)
+        response = await client.get(f"{ZOTERO_BASE_URL}/users/0/items/{item_key}", headers=_auth_headers(server_id, api_key))
+        response.raise_for_status()
+        item_payload = response.json()
+        data = item_payload.get("data", item_payload)
+        return {
+            "item_key": item_key,
+            "title": data.get("title"),
+            "doi": _normalize_doi(data.get("DOI")),
+            "url": data.get("url"),
+            "abstract": data.get("abstractNote"),
+            "year": _year_from_date(data.get("date")),
+            "venue": data.get("publicationTitle") or data.get("conferenceName") or data.get("proceedingsTitle"),
+            "pdf_attached": await _item_has_pdf_attachment(client, item_key),
+        }
+
+
 async def _attach_pdf_from_url(
     client: httpx.AsyncClient,
     server_id: str,
     api_key: str,
     parent_key: str,
     paper: Paper,
-) -> bool:
+) -> tuple[bool, str]:
     try:
-        pdf = await _download_pdf(client, paper.pdf_url)
-        if not pdf:
-            return False
+        resolved = await _resolve_pdf_for_paper(client, paper)
+        if not resolved:
+            return False, "missing_pdf_url" if not _seed_pdf_candidates(paper) else "attach_failed"
 
-        content, content_type = pdf
+        content, content_type, pdf_url = resolved
         filename = _pdf_filename(paper)
-        return await _attach_linked_pdf_bytes(
+        ok = await _attach_linked_pdf_bytes(
             client=client,
             server_id=server_id,
             api_key=api_key,
@@ -413,12 +458,156 @@ async def _attach_pdf_from_url(
             content=content,
             content_type=content_type or "application/pdf",
             filename=filename,
-            source_url=paper.pdf_url,
+            source_url=pdf_url,
             source_label=paper.source_label or paper.venue,
             tags=["PDF", "OpenAccess"] if paper.is_oa else ["PDF"],
         )
+        return ok, "attached" if ok else "attach_failed"
     except (KeyError, httpx.HTTPError):
-        return False
+        return False, "attach_failed"
+
+
+async def _resolve_pdf_for_paper(client: httpx.AsyncClient, paper: Paper) -> tuple[bytes, str, str] | None:
+    candidates = _seed_pdf_candidates(paper)
+    discovered_pages: set[str] = set()
+
+    for candidate in list(candidates):
+        pdf = await _download_pdf(client, candidate)
+        if pdf:
+            content, content_type = pdf
+            return content, content_type, candidate
+
+        if candidate in discovered_pages:
+            continue
+        discovered_pages.add(candidate)
+        for discovered in await _discover_pdf_urls_from_page(client, candidate):
+            if discovered not in candidates:
+                candidates.append(discovered)
+
+    for candidate in candidates:
+        pdf = await _download_pdf(client, candidate)
+        if pdf:
+            content, content_type = pdf
+            return content, content_type, candidate
+    return None
+
+
+def _seed_pdf_candidates(paper: Paper) -> list[str]:
+    candidates: list[str] = []
+    for url in (paper.pdf_url, *_known_pdf_url_variants(paper.url), *_known_pdf_url_variants(_doi_url(paper.doi))):
+        if url and url not in candidates:
+            candidates.append(url)
+    return candidates
+
+
+def _doi_url(doi: str | None) -> str | None:
+    normalized = _normalize_doi(doi)
+    return f"https://doi.org/{normalized}" if normalized else None
+
+
+def _known_pdf_url_variants(url: str | None) -> list[str]:
+    if not url:
+        return []
+    parsed = urlparse(url)
+    host = parsed.netloc.lower()
+    path = parsed.path
+    result = [url]
+
+    if "arxiv.org" in host and "/abs/" in path:
+        paper_id = path.split("/abs/", 1)[1].strip("/")
+        result.append(urlunparse((parsed.scheme, parsed.netloc, f"/pdf/{paper_id}.pdf", "", "", "")))
+    if "openreview.net" in host:
+        query = parse_qs(parsed.query)
+        paper_id = (query.get("id") or [None])[0]
+        if paper_id:
+            result.append(urlunparse((parsed.scheme, parsed.netloc, "/pdf", "", urlencode({"id": paper_id}), "")))
+    if "ieeexplore.ieee.org" in host:
+        match = re.search(r"/document/(\d+)", path)
+        if match:
+            article_number = match.group(1)
+            result.append(f"https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber={article_number}")
+            result.append(f"https://ieeexplore.ieee.org/stampPDF/getPDF.jsp?tp=&arnumber={article_number}")
+            result.append(f"https://ieeexplore.ieee.org/stampPDF/getPDF.jsp?tp=&arnumber={article_number}&ref=")
+    if "proceedings.mlr.press" in host and path.endswith(".html"):
+        result.append(urlunparse((parsed.scheme, parsed.netloc, path[:-5] + ".pdf", "", "", "")))
+    if "aclanthology.org" in host and not path.lower().endswith(".pdf"):
+        result.append(url.rstrip("/") + ".pdf")
+
+    return list(dict.fromkeys(result))
+
+
+async def _discover_pdf_urls_from_page(client: httpx.AsyncClient, url: str) -> list[str]:
+    html = await _download_html(client, url)
+    if not html:
+        return []
+    parser = PdfLinkParser(url)
+    parser.feed(html)
+    return parser.urls
+
+
+async def _download_html(client: httpx.AsyncClient, url: str) -> str | None:
+    try:
+        response = await client.get(url, headers={"Accept": "text/html,application/xhtml+xml,*/*"})
+        response.raise_for_status()
+    except httpx.HTTPError:
+        return None
+    content_type = response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+    if content_type and "html" not in content_type and content_type != "text/plain":
+        return None
+    text = response.text
+    return text[:2_000_000]
+
+
+PDF_LINK_HINTS = ("pdf", "full text", "fulltext", "download")
+
+
+class PdfLinkParser(HTMLParser):
+    def __init__(self, base_url: str):
+        super().__init__()
+        self.base_url = base_url
+        self.urls: list[str] = []
+        self._pending_href: str | None = None
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attr = {key.lower(): value or "" for key, value in attrs}
+        if tag == "meta":
+            name = (attr.get("name") or attr.get("property") or "").lower()
+            if name in {"citation_pdf_url", "bepress_citation_pdf_url", "eprints.document_url"}:
+                self._add(attr.get("content"))
+        if tag == "link":
+            descriptor = " ".join([attr.get("rel", ""), attr.get("type", ""), attr.get("title", "")]).lower()
+            if _has_pdf_link_hint(descriptor):
+                self._add(attr.get("href"))
+        if tag in {"iframe", "embed", "object"}:
+            href = attr.get("src") or attr.get("data")
+            descriptor = " ".join([href or "", attr.get("type", ""), attr.get("title", ""), attr.get("aria-label", ""), attr.get("class", "")]).lower()
+            if _has_pdf_link_hint(descriptor):
+                self._add(href)
+        if tag == "a":
+            href = attr.get("href")
+            descriptor = " ".join([href or "", attr.get("type", ""), attr.get("title", ""), attr.get("aria-label", ""), attr.get("class", "")]).lower()
+            if _has_pdf_link_hint(descriptor) or (href and href.lower().endswith(".pdf")):
+                self._add(href)
+            self._pending_href = href
+
+    def handle_data(self, data: str) -> None:
+        if self._pending_href and _has_pdf_link_hint(data.lower()):
+            self._add(self._pending_href)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "a":
+            self._pending_href = None
+
+    def _add(self, url: str | None) -> None:
+        if not url or url.startswith(("mailto:", "javascript:")):
+            return
+        absolute = urljoin(self.base_url, url)
+        if absolute not in self.urls:
+            self.urls.append(absolute)
+
+
+def _has_pdf_link_hint(value: str) -> bool:
+    return any(hint in value for hint in PDF_LINK_HINTS)
 
 
 async def attach_pdf_to_zotero(payload: ZoteroAttachPdfRequest) -> dict:
@@ -612,11 +801,27 @@ async def _upload_file_to_attachment(
     return True
 
 
+def _pdf_request_headers(url: str) -> dict[str, str]:
+    headers = {
+        "Accept": "application/pdf,text/html;q=0.9,*/*;q=0.8",
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
+    }
+    parsed = urlparse(url)
+    if "ieeexplore.ieee.org" in parsed.netloc.lower():
+        article_number = (parse_qs(parsed.query).get("arnumber") or [None])[0]
+        if not article_number:
+            match = re.search(r"/document/(\d+)", parsed.path)
+            article_number = match.group(1) if match else None
+        if article_number:
+            headers["Referer"] = f"https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber={article_number}"
+    return headers
+
+
 async def _download_pdf(client: httpx.AsyncClient, url: str | None) -> tuple[bytes, str] | None:
     if not url:
         return None
     try:
-        response = await client.get(url, headers={"Accept": "application/pdf,*/*"})
+        response = await client.get(url, headers=_pdf_request_headers(url))
         response.raise_for_status()
     except httpx.HTTPError:
         return None
@@ -625,7 +830,7 @@ async def _download_pdf(client: httpx.AsyncClient, url: str | None) -> tuple[byt
     if not content or len(content) > MAX_PDF_BYTES:
         return None
     content_type = response.headers.get("Content-Type", "").split(";")[0].strip().lower()
-    looks_like_pdf = content.startswith(b"%PDF") or content_type == "application/pdf" or url.lower().endswith(".pdf")
+    looks_like_pdf = content.startswith(b"%PDF") or content_type == "application/pdf"
     if not looks_like_pdf:
         return None
     return content, content_type or "application/pdf"
@@ -732,6 +937,11 @@ def _normalize_doi(doi: str | None) -> str | None:
     clean = doi.strip().lower()
     clean = clean.removeprefix("https://doi.org/").removeprefix("http://doi.org/").removeprefix("doi:")
     return clean.strip()
+
+
+def _year_from_date(date: str | None) -> int | None:
+    match = re.search(r"(19|20)\d{2}", date or "")
+    return int(match.group(0)) if match else None
 
 
 def _title_year_key(title: str | None, date: str | None) -> str | None:

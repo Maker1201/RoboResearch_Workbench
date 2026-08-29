@@ -7,6 +7,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 PROJECT_STATUSES = {"Planning", "Active", "Blocked", "Paused", "Completed", "Archived"}
 PROGRESS_MODES = {"AUTO", "MANUAL"}
+PAPER_READING_STATUSES = {"Inbox", "Candidate", "To Read", "Skimming", "Reading", "Deep Reading", "Finished", "Reference", "Dropped"}
+READING_MODES = {"SCAN", "SKIM", "READ", "DEEP"}
+READING_PURPOSES = {"Project", "Literature Review", "Learn Method", "Reproduce", "Compare Baseline", "Research Idea", "General Interest"}
 
 
 class ORMModel(BaseModel):
@@ -158,12 +161,20 @@ class PaperBase(BaseModel):
     year: int | None = None
     venue: str = "Others"
     tags: str | None = None
-    status: str = "inbox"
+    status: str = "Inbox"
+    reading_mode: str | None = None
     priority: str = "normal"
+    reading_purpose: str | None = None
+    queued_at: datetime | None = None
     doi: str | None = None
     url: str | None = None
     pdf_url: str | None = None
     zotero_key: str | None = None
+    zotero_item_key: str | None = None
+    zotero_library: str | None = None
+    zotero_pdf_attached: bool = False
+    zotero_pdf_status: str | None = None
+    zotero_synced_at: datetime | None = None
     related_project_id: int | None = None
 
 
@@ -181,11 +192,19 @@ class PaperUpdate(BaseModel):
     venue: str | None = None
     tags: str | None = None
     status: str | None = None
+    reading_mode: str | None = None
     priority: str | None = None
+    reading_purpose: str | None = None
+    queued_at: datetime | None = None
     doi: str | None = None
     url: str | None = None
     pdf_url: str | None = None
     zotero_key: str | None = None
+    zotero_item_key: str | None = None
+    zotero_library: str | None = None
+    zotero_pdf_attached: bool | None = None
+    zotero_pdf_status: str | None = None
+    zotero_synced_at: datetime | None = None
     related_project_id: int | None = None
 
 
@@ -200,8 +219,14 @@ class ReadingNoteBase(BaseModel):
     title: str
     status: str = "draft"
     content: str = ""
+    content_markdown: str = ""
+    reading_status_snapshot: str | None = None
+    reading_mode: str | None = None
+    one_sentence_summary: str | None = None
+    relevance_to_me: str | None = None
     extracted_knowledge: str | None = None
     idea: str | None = None
+    related_project_id: int | None = None
 
 
 class ReadingNoteCreate(ReadingNoteBase):
@@ -213,8 +238,14 @@ class ReadingNoteUpdate(BaseModel):
     title: str | None = None
     status: str | None = None
     content: str | None = None
+    content_markdown: str | None = None
+    reading_status_snapshot: str | None = None
+    reading_mode: str | None = None
+    one_sentence_summary: str | None = None
+    relevance_to_me: str | None = None
     extracted_knowledge: str | None = None
     idea: str | None = None
+    related_project_id: int | None = None
 
 
 class ReadingNoteOut(ReadingNoteBase, ORMModel):
@@ -222,6 +253,40 @@ class ReadingNoteOut(ReadingNoteBase, ORMModel):
     created_at: datetime
     updated_at: datetime
 
+
+
+
+class PaperQueueRequest(BaseModel):
+    priority: str = "normal"
+    reading_purpose: str = "General Interest"
+    related_project_id: int | None = None
+    reading_mode: str | None = None
+
+
+class PaperLibraryImportRequest(BaseModel):
+    paper: dict[str, Any]
+    reading_purpose: str | None = None
+    related_project_id: int | None = None
+    priority: str = "normal"
+
+
+class PaperLibraryBatchImportRequest(BaseModel):
+    papers: list[dict[str, Any]]
+    reading_purpose: str | None = None
+    related_project_id: int | None = None
+    priority: str = "normal"
+
+
+class PaperPdfAttachRequest(BaseModel):
+    pdf_url: str | None = None
+    filename: str | None = None
+    content_type: str = "application/pdf"
+    content_base64: str
+
+
+class ReadingNoteExportOut(BaseModel):
+    filename: str
+    content: str
 
 class ExperimentBase(BaseModel):
     project_id: int | None = None

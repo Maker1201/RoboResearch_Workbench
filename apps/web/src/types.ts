@@ -115,11 +115,19 @@ export type Paper = {
   venue: string;
   tags?: string | null;
   status: string;
+  reading_mode?: string | null;
   priority: string;
+  reading_purpose?: string | null;
+  queued_at?: string | null;
   doi?: string | null;
   url?: string | null;
   pdf_url?: string | null;
   zotero_key?: string | null;
+  zotero_item_key?: string | null;
+  zotero_library?: string | null;
+  zotero_pdf_attached?: boolean;
+  zotero_pdf_status?: string | null;
+  zotero_synced_at?: string | null;
   related_project_id?: number | null;
 };
 
@@ -148,8 +156,14 @@ export type ReadingNote = {
   title: string;
   status: string;
   content: string;
+  content_markdown?: string | null;
+  reading_status_snapshot?: string | null;
+  reading_mode?: string | null;
+  one_sentence_summary?: string | null;
+  relevance_to_me?: string | null;
   extracted_knowledge?: string | null;
   idea?: string | null;
+  related_project_id?: number | null;
 };
 
 export type Experiment = {
@@ -200,14 +214,20 @@ export type FocusSession = {
   duration_seconds: number;
   paused_seconds: number;
   status: FocusStatus;
+  focus_type?: string | null;
+  context_type?: string | null;
   task_id?: number | null;
   project_id?: number | null;
+  paper_id?: number | null;
+  reading_note_id?: number | null;
   note?: string | null;
   created_at: string;
   updated_at: string;
   elapsed_seconds: number;
   task_title?: string | null;
   project_name?: string | null;
+  paper_title?: string | null;
+  reading_note_title?: string | null;
 };
 
 export type SystemSettings = {

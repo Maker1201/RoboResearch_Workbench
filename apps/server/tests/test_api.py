@@ -131,3 +131,95 @@ def test_focus_session_lifecycle():
     stats = client.get("/api/focus/stats?range=today").json()
     assert stats["duration_seconds"] >= 0
     assert client.get("/api/focus/current").json()["current_session"] is None
+
+
+def test_literature_candidate_queue_note_export_and_focus():
+    paper_payload = {
+        "title": "Workflow Test Paper",
+        "authors": "Ada Lovelace, Grace Hopper",
+        "year": 2026,
+        "venue": "ICRA",
+        "abstract": "A paper used to verify the literature workflow.",
+        "doi": "10.1234/workflow-test-paper",
+        "status": "Candidate",
+    }
+    created = client.post("/papers", json=paper_payload)
+    assert created.status_code == 200
+    paper = created.json()
+    assert paper["status"] == "Candidate"
+
+    duplicate = client.post("/papers", json={**paper_payload, "title": "Workflow Test Paper", "priority": "high"}).json()
+    assert duplicate["id"] == paper["id"]
+    assert duplicate["priority"] == "high"
+
+    queued = client.post(f"/papers/{paper['id']}/queue", json={
+        "priority": "high",
+        "reading_purpose": "Learn Method",
+        "related_project_id": None,
+        "reading_mode": "SKIM",
+    }).json()
+    assert queued["status"] == "To Read"
+    assert queued["reading_purpose"] == "Learn Method"
+    assert queued["reading_mode"] == "SKIM"
+    assert queued["queued_at"] is not None
+
+    note = client.post(f"/papers/{paper['id']}/reading-note").json()
+    assert note["paper_id"] == paper["id"]
+    assert "Why did I read this?" in note["content_markdown"]
+
+    saved = client.patch(f"/reading-notes/{note['id']}", json={
+        "one_sentence_summary": "A concise workflow verification note.",
+        "relevance_to_me": "Useful for checking persistence.",
+        "content_markdown": note["content_markdown"] + "\nExtra observation.",
+    }).json()
+    assert saved["content"] == saved["content_markdown"]
+    assert saved["one_sentence_summary"].startswith("A concise")
+
+    exported = client.get(f"/reading-notes/{note['id']}/export").json()
+    assert exported["filename"].endswith(".md")
+    assert "zotero_item_key" in exported["content"]
+    assert "Extra observation." in exported["content"]
+
+    started = client.post("/api/focus/start", json={
+        "paper_id": paper["id"],
+        "reading_note_id": note["id"],
+        "context_type": "PAPER_READING",
+        "focus_type": "PAPER_READING",
+    }).json()
+    assert started["paper_id"] == paper["id"]
+    assert started["reading_note_id"] == note["id"]
+    assert started["context_type"] == "PAPER_READING"
+    client.post(f"/api/focus/{started['id']}/finish")
+
+def test_attach_pdf_to_paper_updates_local_zotero_status(monkeypatch):
+    paper_payload = {
+        "title": "Manual PDF Attachment Paper",
+        "authors": "Haichao Liu",
+        "year": 2025,
+        "venue": "IROS",
+        "status": "To Read",
+        "zotero_item_key": "ZITEM123",
+        "zotero_key": "ZITEM123",
+    }
+    paper = client.post("/papers", json=paper_payload).json()
+
+    async def fake_attach_pdf_to_zotero(payload):
+        assert payload.item_key == "ZITEM123"
+        assert payload.filename == "paper.pdf"
+        assert payload.content_base64 == "JVBERi0xLjc="
+        return {"status": "ok", "message": "PDF 已挂载到 Zotero。", "item_key": payload.item_key}
+
+    monkeypatch.setattr("app.main.attach_pdf_to_zotero", fake_attach_pdf_to_zotero)
+
+    response = client.post(f"/papers/{paper['id']}/attach-pdf", json={
+        "filename": "paper.pdf",
+        "content_type": "application/pdf",
+        "content_base64": "JVBERi0xLjc=",
+    })
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["zotero_pdf_attached"] is True
+    assert data["zotero_pdf_status"] == "attached"
+    assert data["zotero_synced_at"] is not None
+

@@ -50,6 +50,20 @@ const defaultSources = [
   { id: "science-robotics", label: "Science Robotics", kind: "journal", aliases: ["Science Robotics"], openalex_ids: [] },
   { id: "tro", label: "T-RO", kind: "journal", aliases: ["IEEE Transactions on Robotics"], openalex_ids: [] },
 ];
+const readingStatuses = ["Inbox", "Candidate", "To Read", "Skimming", "Reading", "Deep Reading", "Finished", "Reference", "Dropped"];
+const readingModes = ["SCAN", "SKIM", "READ", "DEEP"];
+const readingPurposes = ["Project", "Literature Review", "Learn Method", "Reproduce", "Compare Baseline", "Research Idea", "General Interest"];
+const paperPriorities = ["high", "normal", "low"];
+const literatureSections = ["Search", "Candidates", "Library", "Reading Queue", "Reading Notes", "Collections"];
+const literatureSectionLabels: Record<string, string> = {
+  Search: "文献检索",
+  Candidates: "候选文献",
+  Library: "文献库",
+  "Reading Queue": "阅读队列",
+  "Reading Notes": "阅读笔记",
+  Collections: "合集",
+};
+const topicFilters = ["VLA", "导航", "操作", "SLAM", "机器人学习"];
 
 type Lang = "zh" | "en";
 type Tab = "dashboard" | "study" | "projects" | "papers" | "knowledge" | "research" | "review" | "notes" | "experiments" | "settings";
@@ -57,13 +71,13 @@ type Tab = "dashboard" | "study" | "projects" | "papers" | "knowledge" | "resear
 
 const coreModuleRows = {
   zh: [
-    { key: "Dashboard", manages: "每天真正要看的首页", content: "今日任务 / 本周目标 / 项目进度 / 待读论文", status: "covered" },
+    { key: "总览", manages: "每天真正要看的首页", content: "今日任务 / 本周目标 / 项目进度 / 待读论文", status: "covered" },
     { key: "学习 & 生活", manages: "日程和个人节奏", content: "课程 / 学习计划 / 英语 / 运动 / 会议", status: "covered" },
-    { key: "Projects", manages: "机器人科研项目", content: "VLA / 导航 / Manipulation / ROS2 / 实验记录", status: "covered" },
-    { key: "Papers", manages: "文献管理", content: "阅读队列 / 精读笔记 / Related Work / 引用", status: "covered" },
-    { key: "Knowledge", manages: "长期知识库", content: "SLAM / RL / Transformer / 控制 / ROS2", status: "covered" },
-    { key: "Research & Writing", manages: "论文研究全过程", content: "Idea / 实验 / Figure / 草稿 / 投稿", status: "covered" },
-    { key: "Review", manages: "周/月/学期复盘", content: "项目进展 / 阅读量 / 实验结果 / 下阶段计划", status: "covered" },
+    { key: "项目", manages: "机器人科研项目", content: "VLA / 导航 / 操作 / ROS2 / 实验记录", status: "covered" },
+    { key: "文献", manages: "文献管理", content: "阅读队列 / 精读笔记 / 相关工作 / 引用", status: "covered" },
+    { key: "知识库", manages: "长期知识库", content: "SLAM / RL / Transformer / 控制 / ROS2", status: "covered" },
+    { key: "研究与写作", manages: "论文研究全过程", content: "想法 / 实验 / 图表 / 草稿 / 投稿", status: "covered" },
+    { key: "复盘", manages: "周/月/学期复盘", content: "项目进展 / 阅读量 / 实验结果 / 下阶段计划", status: "covered" },
   ],
   en: [
     { key: "Dashboard", manages: "Daily home view", content: "Today tasks / weekly goals / project progress / paper queue", status: "covered" },
@@ -207,9 +221,9 @@ const ui = {
       addTask: "添加任务",
       taskPlaceholder: "课程 / 英语 / 运动 / 会议",
       morning: "09:00 课程 / 论文阅读",
-      afternoon: "14:00 实验 / Coding",
+      afternoon: "14:00 实验 / 编程",
       evening: "19:30 英语 / 基础课",
-      review: "21:30 Daily Review",
+      review: "21:30 每日复盘",
       habits: ["英语输入", "运动", "睡眠", "会议整理"],
     },
     projects: {
@@ -266,16 +280,16 @@ const ui = {
     },
 
     research: {
-      pipeline: "论文研究 Pipeline",
+      pipeline: "论文研究流程",
       writingBoard: "写作看板",
       ideas: "研究想法",
-      figures: "Figure Bank",
-      relatedWork: "Related Work",
-      draft: "Draft",
-      revision: "Revision",
-      submission: "Submission",
-      ideaItems: ["从阅读笔记提取可实验问题", "关联项目与实验", "沉淀 Contributions"],
-      figureItems: ["Fig 1 System Overview", "Fig 2 VLA Architecture", "Fig 3 Experiment Results"],
+      figures: "图表库",
+      relatedWork: "相关工作",
+      draft: "草稿",
+      revision: "修订",
+      submission: "投稿",
+      ideaItems: ["从阅读笔记提取可实验问题", "关联项目与实验", "沉淀贡献点"],
+      figureItems: ["图 1 系统总览", "图 2 VLA 架构", "图 3 实验结果"],
     },
     review: {
       moduleAudit: "核心模块核对",
@@ -308,7 +322,7 @@ const ui = {
       advanced: "高级",
       language: "系统语言",
       chinese: "中文",
-      english: "English",
+      english: "英文",
       save: "保存设置",
       test: "测试连接",
       enabled: "启用",
@@ -319,12 +333,12 @@ const ui = {
       knowledgeRoot: "知识库根目录",
       useObsidianUri: "使用 Obsidian URI",
       connectionMode: "连接模式",
-      userId: "User ID",
-      apiKey: "API Key",
-      library: "Library",
+      userId: "用户 ID",
+      apiKey: "API 密钥",
+      library: "库类型",
       username: "用户名",
-      token: "Personal Access Token",
-      defaultOwner: "默认 Owner",
+      token: "个人访问令牌",
+      defaultOwner: "默认所有者",
       defaultBranch: "默认分支",
       projectsRoot: "项目根目录",
       datasetRoot: "数据集根目录",
@@ -724,9 +738,9 @@ export default function App() {
           <ShieldCheck size={16} />
           <span>{message}</span>
         </div>
-        <button className="language-toggle" onClick={switchLanguage} title="Language">
+        <button className="language-toggle" onClick={switchLanguage} title="语言">
           <Languages size={17} />
-          {lang === "zh" ? "中文" : "English"}
+          {lang === "zh" ? "中文" : "英文"}
         </button>
       </aside>
 
@@ -745,7 +759,7 @@ export default function App() {
         {tab === "dashboard" && (focusMode ? <FocusMode t={t.focusMode} tasks={tasks} projects={projects} summary={dashboardSummary} refresh={refresh} exit={() => setFocusMode(false)} /> : <Dashboard t={t.dashboard} summary={dashboardSummary} tasks={tasks} refresh={refresh} openFocus={() => setFocusMode(true)} setTab={setTab} />)}
         {tab === "study" && <StudyLife t={t.study} tasks={tasks} refresh={refresh} />}
         {tab === "projects" && <Projects t={t.projects} projects={projects} refresh={refresh} />}
-        {tab === "papers" && <Papers t={t.papers} papers={papers} refresh={refresh} setMessage={setMessage} setLoading={setLoading} />}
+        {tab === "papers" && <Papers t={t.papers} papers={papers} projects={projects} notes={notes} refresh={refresh} setMessage={setMessage} setLoading={setLoading} />}
         {tab === "knowledge" && <Knowledge t={t.knowledge} knowledge={knowledge} refresh={refresh} />}
         {tab === "research" && <ResearchWriting t={t.research} projects={projects} papers={papers} notes={notes} experiments={experiments} />}
         {tab === "review" && <Review t={t.review} moduleRows={coreModuleRows[lang]} summary={summary} projects={projects} papers={papers} experiments={experiments} />}
@@ -1661,34 +1675,73 @@ function SecurityScan({ scan, onContinue }: { scan: any; onContinue: () => void 
   return <div className={`security-box ${hasRisk ? "risk" : ""}`}><div className="widget-title">{hasRisk ? <AlertTriangle size={16} /> : <ShieldCheck size={16} />}<strong>推送前安全检查</strong></div><p>安全文件： {scan?.safe_files?.length ?? 0}</p>{scan?.blocked_files?.length > 0 && <p>已拦截： {scan.blocked_files.slice(0, 8).join(", ")}</p>}{scan?.large_files?.length > 0 && <p>大文件： {scan.large_files.map((item: any) => item.path).slice(0, 5).join(", ")}</p>}{scan?.secret_matches?.length > 0 && <p>疑似密钥： {scan.secret_matches.map((item: any) => item.path).slice(0, 5).join(", ")}</p>}{hasRisk && <button onClick={onContinue}>仅使用安全文件继续</button>}</div>;
 }
 
-function Papers({ t, papers, refresh, setMessage, setLoading }: {
+function Papers({ t, papers, projects, notes, refresh, setMessage, setLoading }: {
   t: typeof ui.zh.papers;
   papers: Paper[];
+  projects: Project[];
+  notes: ReadingNote[];
   refresh: () => Promise<void>;
   setMessage: (message: string) => void;
   setLoading: (value: boolean) => void;
 }) {
+  const [section, setSection] = useState("Search");
   const [venue, setVenue] = useState("");
+  const [topic, setTopic] = useState("");
   const [query, setQuery] = useState("embodied intelligence robot task planning world model");
   const [keywords, setKeywords] = useState("VLA\nVLM\nworld model\nrobot task planning\nmanipulation");
+  const [fromYear, setFromYear] = useState("2020");
+  const [toYear, setToYear] = useState(String(new Date().getFullYear()));
+  const [sort, setSort] = useState("relevance");
   const [results, setResults] = useState<SearchPaper[]>([]);
-  const [selected, setSelected] = useState<Record<string, SearchPaper>>({});
+  const [ignored, setIgnored] = useState<Record<string, boolean>>({});
+  const [selectedResults, setSelectedResults] = useState<Record<string, SearchPaper>>({});
+  const [selectedPaperId, setSelectedPaperId] = useState<number | null>(null);
+  const [selectedNoteId, setSelectedNoteId] = useState<number | null>(null);
+  const [noteDraft, setNoteDraft] = useState("");
+  const [noteSummary, setNoteSummary] = useState("");
+  const [noteRelevance, setNoteRelevance] = useState("");
+  const [queueForm, setQueueForm] = useState({ priority: "normal", reading_purpose: "General Interest", related_project_id: "", reading_mode: "SKIM" });
 
-  const shown = venue ? papers.filter((paper) => paper.venue === venue) : papers;
-  const chosen = Object.values(selected);
+  const visibleResults = results
+    .filter((paper) => !ignored[resultKey(paper)])
+    .sort((a, b) => sort === "newest" ? (b.year || 0) - (a.year || 0) : b.relevance - a.relevance);
+  const selectedResultList = Object.values(selectedResults);
+  const candidates = papers.filter((paper) => normalizePaperStatus(paper.status) === "Candidate");
+  const library = papers.filter((paper) => !["Candidate", "Dropped"].includes(normalizePaperStatus(paper.status)) && (paper.zotero_item_key || paper.zotero_key || normalizePaperStatus(paper.status) !== "Inbox"));
+  const queue = papers.filter((paper) => Boolean(paper.queued_at) || ["To Read", "Skimming", "Reading", "Deep Reading"].includes(normalizePaperStatus(paper.status)));
+  const filteredLibrary = library.filter((paper) => (!venue || paper.venue === venue) && (!topic || (paper.tags || "").toLowerCase().includes(topic.toLowerCase())));
+  const selectedPaper = papers.find((paper) => paper.id === selectedPaperId) || queue[0] || library[0] || candidates[0];
+  const selectedNotes = selectedPaper ? notes.filter((note) => note.paper_id === selectedPaper.id) : [];
+  const selectedNote = notes.find((note) => note.id === selectedNoteId) || selectedNotes[0];
+  useEffect(() => {
+    if (selectedNote) {
+      setSelectedNoteId(selectedNote.id);
+      setNoteDraft(selectedNote.content_markdown || selectedNote.content || "");
+      setNoteSummary(selectedNote.one_sentence_summary || "");
+      setNoteRelevance(selectedNote.relevance_to_me || "");
+    } else {
+      setSelectedNoteId(null);
+      setNoteDraft("");
+      setNoteSummary("");
+      setNoteRelevance("");
+    }
+  }, [selectedNote?.id]);
 
   async function search() {
     setLoading(true);
     try {
+      const sources = venue ? defaultSources.filter((source) => source.label === venue) : defaultSources;
       const data = await api.searchPapers({
         query,
-        sources: defaultSources,
+        sources,
         keywords: keywords.split(/\n|,/).map((item) => item.trim()).filter(Boolean),
-        from_year: 2020,
-        to_year: new Date().getFullYear(),
+        from_year: Number(fromYear) || 2020,
+        to_year: Number(toYear) || new Date().getFullYear(),
         per_source_limit: 20,
       });
       setResults(data.papers);
+      setSelectedResults({});
+      setSection("Search");
       setMessage(`${t.found} ${data.papers.length} ${t.foundSuffix}`);
     } catch (error) {
       setMessage(`${t.failed}: ${friendlyError(error)}`);
@@ -1697,75 +1750,272 @@ function Papers({ t, papers, refresh, setMessage, setLoading }: {
     }
   }
 
-  async function saveToWorkbench(paper: SearchPaper) {
-    await api.savePaper({
-      title: paper.title,
-      translated_title: paper.translated_title,
-      abstract: paper.abstract,
-      translated_abstract: paper.translated_abstract,
-      authors: paper.authors.join(", "),
-      year: paper.year,
-      venue: normalizeVenue(paper.source_label || paper.venue),
-      tags: paper.matched_keywords.join(", "),
-      doi: paper.doi,
-      url: paper.url,
-      pdf_url: paper.pdf_url,
-      status: "inbox",
+  function toggleResultSelection(paper: SearchPaper, checked: boolean) {
+    const key = resultKey(paper);
+    setSelectedResults((items) => {
+      const next = { ...items };
+      if (checked) next[key] = paper;
+      else delete next[key];
+      return next;
     });
+  }
+
+  function selectVisibleResults() {
+    setSelectedResults((items) => {
+      const next = { ...items };
+      for (const paper of visibleResults) next[resultKey(paper)] = paper;
+      return next;
+    });
+  }
+
+  async function saveSelectedCandidates() {
+    if (!selectedResultList.length) return;
+    setLoading(true);
+    let saved = 0;
+    const failures: string[] = [];
+    try {
+      for (const paper of selectedResultList) {
+        try {
+          await api.saveCandidate(paper, { priority: queueForm.priority });
+          saved += 1;
+        } catch {
+          failures.push(paper.title);
+        }
+      }
+      setSelectedResults({});
+      setSection("Candidates");
+      await refresh();
+      setMessage(failures.length ? `已保存 ${saved} 篇候选文献，${failures.length} 篇失败。` : `已保存 ${saved} 篇候选文献。`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function addSelectedToLibrary() {
+    if (!selectedResultList.length) return;
+    setLoading(true);
+    try {
+      const saved = await api.addManyToLibrary(selectedResultList, {
+        priority: queueForm.priority,
+        reading_purpose: queueForm.reading_purpose,
+        related_project_id: queueForm.related_project_id ? Number(queueForm.related_project_id) : null,
+      });
+      const attached = saved.filter((paper) => paper.zotero_pdf_attached).length;
+      const pending = saved.length - attached;
+      setSelectedResults({});
+      setSection("Library");
+      await refresh();
+      setMessage(`已加入 Zotero 和文献库：${saved.length} 篇。PDF 已挂载 ${attached} 篇，待补充 ${pending} 篇。`);
+    } catch (error) {
+      await refresh();
+      setMessage(`批量加入 Zotero 失败：${friendlyError(error)}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function saveCandidate(paper: SearchPaper) {
+    const saved = await api.saveCandidate(paper, { priority: queueForm.priority });
+    setSelectedPaperId(saved.id);
+    setSection("Candidates");
+    await refresh();
+    setMessage("已保存为候选文献。");
+  }
+
+  async function addResultToLibrary(paper: SearchPaper) {
+    setLoading(true);
+    try {
+      const saved = await api.addToLibrary(paper, {
+        priority: queueForm.priority,
+        reading_purpose: queueForm.reading_purpose,
+        related_project_id: queueForm.related_project_id ? Number(queueForm.related_project_id) : null,
+      });
+      setSelectedPaperId(saved.id);
+      setSection("Library");
+      await refresh();
+      setMessage("已添加到 Zotero 和工作台文献库。");
+    } catch (error) {
+      setMessage(`Zotero 导入失败：${friendlyError(error)}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function queuePaper(paper: Paper) {
+    const queued = await api.queuePaper(paper.id, {
+      priority: queueForm.priority,
+      reading_purpose: queueForm.reading_purpose,
+      related_project_id: queueForm.related_project_id ? Number(queueForm.related_project_id) : null,
+      reading_mode: queueForm.reading_mode,
+    });
+    setSelectedPaperId(queued.id);
+    setSection("Reading Queue");
+    await refresh();
+    setMessage("已加入阅读队列。");
+  }
+
+  async function updatePaperStatus(paper: Paper, status: string) {
+    await api.updatePaper(paper.id, { status });
     await refresh();
   }
 
-  async function importZotero() {
-    const result = await api.importZotero(chosen);
-    setMessage(result.message ?? t.zoteroDone);
+  async function updatePaperMode(paper: Paper, reading_mode: string) {
+    await api.updatePaper(paper.id, { reading_mode });
+    await refresh();
+  }
+
+  async function createNote(paper: Paper) {
+    const note = await api.createPaperNote(paper.id);
+    setSelectedPaperId(paper.id);
+    setSelectedNoteId(note.id);
+    setSection("Reading Notes");
+    await refresh();
+  }
+
+  async function saveNote() {
+    if (!selectedNote) return;
+    await api.updateNote(selectedNote.id, {
+      content_markdown: noteDraft,
+      one_sentence_summary: noteSummary,
+      relevance_to_me: noteRelevance,
+      reading_mode: selectedPaper?.reading_mode || selectedNote.reading_mode,
+      reading_status_snapshot: selectedPaper?.status || selectedNote.reading_status_snapshot,
+    });
+    await refresh();
+    setMessage("阅读笔记已保存。");
+  }
+
+  async function exportNote() {
+    if (!selectedNote) return;
+    const exported = await api.exportNote(selectedNote.id);
+    const blob = new Blob([exported.content], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = exported.filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function attachPdfFile(paper: Paper, file: File | null) {
+    if (!file) return;
+    if (file.type && file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+      setMessage("请选择 PDF 文件。");
+      return;
+    }
+    if (file.size > 80 * 1024 * 1024) {
+      setMessage("PDF 文件超过 80MB，暂不自动挂载。");
+      return;
+    }
+    setLoading(true);
+    try {
+      const content = await fileToBase64(file);
+      const saved = await api.attachPaperPdf(paper.id, {
+        content_base64: content,
+        filename: file.name || `${paper.title}.pdf`,
+        content_type: file.type || "application/pdf",
+        pdf_url: paper.pdf_url || paper.url || null,
+      });
+      setSelectedPaperId(saved.id);
+      await refresh();
+      setMessage("PDF 已挂载到 Zotero，并已同步工作台状态。");
+    } catch (error) {
+      setMessage(`PDF 挂载失败：${friendlyError(error)}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function startReadingFocus() {
+    if (!selectedPaper) return;
+    const note = selectedNote || await api.createPaperNote(selectedPaper.id);
+    await api.startFocus({ paper_id: selectedPaper.id, reading_note_id: note.id, context_type: "PAPER_READING", focus_type: "PAPER_READING", note: `阅读：${selectedPaper.title}` });
+    setMessage("已从该文献开始阅读专注。");
+    await refresh();
+  }
+
+  async function syncZotero() {
+    setLoading(true);
+    try {
+      const result = await api.syncZoteroPapers();
+      await refresh();
+      setMessage(result.failed.length ? `${result.message} ${result.failed.length} 篇同步失败。` : result.message);
+    } catch (error) {
+      setMessage(`Zotero 同步失败：${friendlyError(error)}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function renderPaperRow(paper: Paper, actions: ReactNode) {
+    return <article className={`paper-card paper-workflow-card ${selectedPaper?.id === paper.id ? "selected" : ""}`} key={paper.id} onClick={() => setSelectedPaperId(paper.id)}>
+      <div className="paper-card-top"><span>{paper.venue} · {paper.year || t.noYear}</span><span>{paperStatusLabel(paper.status)}</span></div>
+      <h3>{paper.title}</h3>
+      {paper.abstract && <p className="abstract-snippet">{paper.abstract.slice(0, 360)}</p>}
+      <div className="tag-cloud"><span>{priorityLabel(paper.priority)}</span>{paper.reading_purpose && <span>{readingPurposeLabel(paper.reading_purpose)}</span>}{paper.reading_mode && <span>{readingModeLabel(paper.reading_mode)}</span>}{(paper.zotero_item_key || paper.zotero_key) && <span>{zoteroSyncLabel(paper)}</span>}</div>
+      <div className="toolbar" onClick={(event) => event.stopPropagation()}>{actions}</div>
+    </article>;
   }
 
   return (
-    <section className="stack">
-      <div className="panel">
-        <h2>{t.searchTitle}</h2>
-        <div className="form-grid paper-search">
-          <input value={query} onChange={(event) => setQuery(event.target.value)} />
-          <textarea value={keywords} onChange={(event) => setKeywords(event.target.value)} />
-          <button className="primary" onClick={() => void search()}><Search size={16} />{t.search}</button>
-          <button disabled={!chosen.length} onClick={() => void importZotero()}><Send size={16} />{t.importZotero}</button>
+    <section className="literature-workbench">
+      <div className="panel literature-toolbar-panel">
+        <div className="panel-heading"><h2>文献工作流</h2><span>文献检索 → 候选文献 → Zotero 文献库 → 阅读队列 → 阅读笔记</span></div>
+        <div className="tabs">{literatureSections.map((item) => <button key={item} className={section === item ? "active-pill" : ""} onClick={() => setSection(item)}>{literatureSectionLabels[item]}</button>)}</div>
+      </div>
+
+      {section === "Search" && <div className="literature-search-stack">
+        <div className="panel literature-search-panel">
+          <h2>{t.searchTitle}</h2>
+          <div className="form-grid paper-search refined-search">
+            <label><span>来源</span><select value={venue} onChange={(event) => setVenue(event.target.value)}><option value="">全部来源</option>{venues.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+            <label><span>起始年份</span><input value={fromYear} onChange={(event) => setFromYear(event.target.value)} /></label>
+            <label><span>结束年份</span><input value={toYear} onChange={(event) => setToYear(event.target.value)} /></label>
+            <label><span>排序</span><select value={sort} onChange={(event) => setSort(event.target.value)}><option value="relevance">相关度</option><option value="newest">最新优先</option></select></label>
+            <label className="search-query-field"><span>主题</span><input value={query} onChange={(event) => setQuery(event.target.value)} /></label>
+            <label className="search-keywords-field"><span>关键词</span><textarea value={keywords} onChange={(event) => setKeywords(event.target.value)} /></label>
+            <button className="primary" onClick={() => void search()}><Search size={16} />{t.search}</button>
+          </div>
         </div>
-      </div>
-      <div className="panel">
-        <h2>{t.saved}</h2>
-        <div className="tabs">{["", ...venues].map((item) => <button key={item || "all"} className={venue === item ? "active-pill" : ""} onClick={() => setVenue(item)}>{item || t.all}</button>)}</div>
-        <div className="paper-grid">{shown.map((paper) => <PaperCard key={paper.id} paper={paper} langText={{ noYear: t.noYear, open: t.open }} />)}</div>
-      </div>
-      <div className="panel">
-        <h2>{t.results}</h2>
-        <div className="paper-grid">
-          {results.map((paper) => {
-            const key = paper.doi || paper.id;
-            return (
-              <article className="paper-card" key={key}>
-                <label className="select-row">
-                  <input type="checkbox" checked={Boolean(selected[key])} onChange={(event) => {
-                    setSelected((items) => {
-                      const next = { ...items };
-                      if (event.target.checked) next[key] = paper;
-                      else delete next[key];
-                      return next;
-                    });
-                  }} />
-                  <span>{paper.source_label || paper.venue || t.unknown} · {paper.year || t.noYear}</span>
-                </label>
+        <div className="panel literature-results-panel">
+          <div className="panel-heading compact-heading result-list-heading"><h2>{t.results}</h2><div className="toolbar"><span className="muted">已选择 {selectedResultList.length} 篇</span><button disabled={!visibleResults.length} onClick={selectVisibleResults}>全选当前结果</button><button disabled={!selectedResultList.length} onClick={() => setSelectedResults({})}>清空选择</button><button disabled={!selectedResultList.length} onClick={() => void saveSelectedCandidates()}><Save size={16} />批量候选</button><button disabled={!selectedResultList.length} onClick={() => void addSelectedToLibrary()}><Send size={16} />批量加入 Zotero</button></div></div>
+          <div className="paper-grid workflow-result-grid">{visibleResults.map((paper) => {
+            const key = resultKey(paper);
+            const selected = Boolean(selectedResults[key]);
+            return <article className={`paper-card paper-workflow-card literature-result-row ${selected ? "selected" : ""}`} key={key}>
+              <label className="result-select" aria-label={`选择文献：${paper.title}`}><input type="checkbox" checked={selected} onChange={(event) => toggleResultSelection(paper, event.target.checked)} /></label>
+              <div className="result-main">
+                <div className="paper-card-top"><span>{paper.source_label || paper.venue || t.unknown} · {paper.year || t.noYear}</span><span>{Math.round(paper.relevance * 100)}%</span></div>
                 <h3>{paper.title}</h3>
                 {paper.translated_title && <p className="muted">{paper.translated_title}</p>}
-                <p>{paper.authors.slice(0, 6).join(", ")}</p>
-                <div className="toolbar">
-                  <button onClick={() => void saveToWorkbench(paper)}>{t.save}</button>
-                  {paper.url && <a href={paper.url} target="_blank">{t.open}</a>}
-                </div>
-              </article>
-            );
-          })}
+                <p className="paper-authors">{paper.authors.slice(0, 8).join(", ")}</p>
+              </div>
+              {paper.abstract && <p className="abstract-snippet">{paper.abstract.slice(0, 360)}</p>}
+              <div className="tag-cloud result-tags">{paper.matched_keywords.map((tag) => <span key={tag}>{tag}</span>)}{paper.pdf_url && <span>PDF</span>}</div>
+              <div className="toolbar result-actions"><button onClick={() => setIgnored({ ...ignored, [key]: true })}><X size={16} />忽略</button><button onClick={() => void saveCandidate(paper)}><Save size={16} />候选</button><button onClick={() => void addResultToLibrary(paper)}><Send size={16} />Zotero / 文献库</button>{paper.url && <a href={paper.url} target="_blank"><Link size={16} />{t.open}</a>}</div>
+            </article>;
+          })}</div>
         </div>
-      </div>
+      </div>}
+
+      {section === "Candidates" && <div className="paper-grid">{candidates.map((paper) => renderPaperRow(paper, <><button onClick={() => void updatePaperStatus(paper, "Dropped")}><X size={16} />移除</button><button onClick={() => void api.addExistingPaperToZotero(paper.id).then((saved) => { setSelectedPaperId(saved.id); setMessage("已添加到 Zotero 和文献库。"); return refresh(); })}><Send size={16} />Zotero / 文献库</button><button onClick={() => void queuePaper(paper)}><Clock3 size={16} />加入队列</button></>))}</div>}
+
+      {section === "Library" && <div className="literature-grid">
+        <div className="panel compact-filter-panel"><div className="panel-heading compact-heading"><h2>{t.saved}</h2><button onClick={() => void syncZotero()}><RefreshCw size={16} />同步 Zotero</button></div><div className="tabs">{["", ...venues].map((item) => <button key={item || "all"} className={venue === item ? "active-pill" : ""} onClick={() => setVenue(item)}>{item || t.all}</button>)}</div><div className="tabs">{["", ...topicFilters].map((item) => <button key={item || "all-topics"} className={topic === item ? "active-pill" : ""} onClick={() => setTopic(item)}>{item || "全部主题"}</button>)}</div></div>
+        <div className="paper-grid">{filteredLibrary.map((paper) => renderPaperRow(paper, <><button onClick={() => void queuePaper(paper)}><Clock3 size={16} />加入队列</button><button onClick={() => void createNote(paper)}><NotebookPen size={16} />笔记</button>{(paper.zotero_item_key || paper.zotero_key) && !paper.zotero_pdf_attached && <label className="file-action-button"><UploadCloud size={16} />挂载 PDF<input type="file" accept="application/pdf,.pdf" onChange={(event) => void attachPdfFile(paper, event.currentTarget.files?.[0] || null)} /></label>}{paper.url && <a href={paper.url} target="_blank"><Link size={16} />{t.open}</a>}</>))}</div>
+      </div>}
+
+      {section === "Reading Queue" && <div className="literature-grid">
+        <div className="panel queue-control-panel"><h2>队列设置</h2><div className="form-grid"><label><span>优先级</span><select value={queueForm.priority} onChange={(event) => setQueueForm({ ...queueForm, priority: event.target.value })}>{paperPriorities.map((item) => <option key={item} value={item}>{priorityLabel(item)}</option>)}</select></label><label><span>阅读目的</span><select value={queueForm.reading_purpose} onChange={(event) => setQueueForm({ ...queueForm, reading_purpose: event.target.value })}>{readingPurposes.map((item) => <option key={item} value={item}>{readingPurposeLabel(item)}</option>)}</select></label><label><span>关联项目</span><select value={queueForm.related_project_id} onChange={(event) => setQueueForm({ ...queueForm, related_project_id: event.target.value })}><option value="">不关联项目</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label><label><span>阅读模式</span><select value={queueForm.reading_mode} onChange={(event) => setQueueForm({ ...queueForm, reading_mode: event.target.value })}>{readingModes.map((item) => <option key={item} value={item}>{readingModeLabel(item)}</option>)}</select></label></div></div>
+        <div className="paper-grid">{queue.map((paper) => renderPaperRow(paper, <><select value={paper.status} onChange={(event) => void updatePaperStatus(paper, event.target.value)}>{readingStatuses.map((item) => <option key={item} value={item}>{paperStatusLabel(item)}</option>)}</select><select value={paper.reading_mode || ""} onChange={(event) => void updatePaperMode(paper, event.target.value)}><option value="">阅读模式</option>{readingModes.map((item) => <option key={item} value={item}>{readingModeLabel(item)}</option>)}</select><button onClick={() => void createNote(paper)}><NotebookPen size={16} />笔记</button></>))}</div>
+      </div>}
+
+      {section === "Reading Notes" && <div className="literature-grid note-workbench-grid">
+        <div className="panel note-paper-list"><h2>文献</h2><div className="list compact-cards">{library.map((paper) => <button className="list-item" key={paper.id} onClick={() => setSelectedPaperId(paper.id)}><strong>{paper.title}</strong><span>{paperStatusLabel(paper.status)} · {paper.reading_mode ? readingModeLabel(paper.reading_mode) : "未设置阅读模式"}</span></button>)}</div></div>
+        <div className="panel note-editor-panel"><div className="panel-heading"><h2>阅读笔记</h2><div className="toolbar">{selectedPaper && <button onClick={() => void createNote(selectedPaper)}><Plus size={16} />新建</button>}<button disabled={!selectedNote} onClick={() => void saveNote()}><Save size={16} />保存</button><button disabled={!selectedNote} onClick={() => void exportNote()}><UploadCloud size={16} />导出 .md</button><button disabled={!selectedPaper} onClick={() => void startReadingFocus()}><Timer size={16} />开始阅读</button></div></div>{selectedPaper && <div className="paper-detail-strip"><strong>{selectedPaper.title}</strong><span>{selectedPaper.venue} · {selectedPaper.year || t.noYear}</span><span>Zotero：{selectedPaper.zotero_item_key || selectedPaper.zotero_key || "未关联"}</span></div>}<div className="form-grid"><label><span>一句话总结</span><textarea value={noteSummary} onChange={(event) => setNoteSummary(event.target.value)} /></label><label><span>与我的研究相关性</span><textarea value={noteRelevance} onChange={(event) => setNoteRelevance(event.target.value)} /></label><label className="full-field"><span>Markdown 笔记</span><textarea className="large note-template" value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} /></label></div></div>
+      </div>}
+
+      {section === "Collections" && <div className="panel"><h2>合集</h2><div className="collection-grid">{venues.map((item) => <button key={item} onClick={() => { setVenue(item); setSection("Library"); }}><strong>{item}</strong><span>{papers.filter((paper) => paper.venue === item).length} 篇文献</span></button>)}</div><div className="tag-cloud collection-tags">{topicFilters.map((item) => <button key={item} onClick={() => { setTopic(item); setSection("Library"); }}>{item}</button>)}</div></div>}
     </section>
   );
 }
@@ -1800,7 +2050,7 @@ function Notes({ t, notes, papers, refresh }: { t: typeof ui.zh.notes; notes: Re
         </div>
       </div>
       <div className="panel accent-violet note-preview-panel">
-        <h2>Preview</h2>
+        <h2>预览</h2>
         <pre className="note-preview">{content}</pre>
       </div>
       <div className="panel accent-amber note-list-panel">
@@ -1898,7 +2148,7 @@ function StudyLife({ t, tasks, refresh }: { t: typeof ui.zh.study; tasks: Task[]
           <button className="primary" onClick={() => void addTask()}><Plus size={16} />{t.addTask}</button>
         </div>
         <div className="list compact-cards">
-          {studyTasks.map((task) => <div className="list-card" key={task.id}><strong>{task.title}</strong><span>{task.priority} · {task.status}</span></div>)}
+          {studyTasks.map((task) => <div className="list-card" key={task.id}><strong>{task.title}</strong><span>{taskPriorityLabel(task.priority)} · {taskStatusLabel(task.status)}</span></div>)}
         </div>
       </div>
       <div className="panel accent-amber">
@@ -1918,7 +2168,7 @@ function ResearchWriting({ t, projects, papers, notes, experiments }: {
   notes: ReadingNote[];
   experiments: Experiment[];
 }) {
-  const pipeline = [t.ideas, "Hypothesis", "Baseline", t.figures, t.relatedWork, t.draft, t.revision, t.submission];
+  const pipeline = [t.ideas, "研究假设", "基线实验", t.figures, t.relatedWork, t.draft, t.revision, t.submission];
   return (
     <section className="dense-grid research-layout">
       <div className="panel wide accent-violet">
@@ -1938,12 +2188,12 @@ function ResearchWriting({ t, projects, papers, notes, experiments }: {
       <div className="panel accent-green">
         <h2>{t.writingBoard}</h2>
         <div className="metric-row triple">
-          <Metric label="Projects" value={projects.length} />
-          <Metric label="Papers" value={papers.length} />
-          <Metric label="Notes" value={notes.length} />
+          <Metric label="项目" value={projects.length} />
+          <Metric label="文献" value={papers.length} />
+          <Metric label="笔记" value={notes.length} />
         </div>
         <div className="metric-row triple">
-          <Metric label="Experiments" value={experiments.length} />
+          <Metric label="实验" value={experiments.length} />
           <Metric label={t.relatedWork} value={papers.filter((paper) => paper.status !== "inbox").length} />
           <Metric label={t.figures} value={t.figureItems.length} />
         </div>
@@ -1965,7 +2215,7 @@ function Review({ t, moduleRows, summary, projects, papers, experiments }: {
       <div className="panel wide accent-cyan">
         <h2>{t.moduleAudit}</h2>
         <div className="module-table">
-          {moduleRows.map((row) => <div key={row.key}><strong>{row.key}</strong><span>{row.manages}</span><em>{row.content}</em><b>{row.status === "covered" ? "OK" : "TODO"}</b></div>)}
+          {moduleRows.map((row) => <div key={row.key}><strong>{row.key}</strong><span>{row.manages}</span><em>{row.content}</em><b>{row.status === "covered" ? "已覆盖" : "待补充"}</b></div>)}
         </div>
       </div>
       <div className="panel accent-green">
@@ -2082,6 +2332,101 @@ function githubWebUrl(remoteUrl: string) {
   }
   return remoteUrl.replace(/\.git$/, "");
 }
+
+function normalizePaperStatus(value?: string | null) {
+  const key = (value || "Inbox").toLowerCase().replace(/_/g, " ");
+  const labels: Record<string, string> = {
+    inbox: "Inbox",
+    candidate: "Candidate",
+    "to read": "To Read",
+    skimming: "Skimming",
+    reading: "Reading",
+    "deep reading": "Deep Reading",
+    finished: "Finished",
+    reference: "Reference",
+    dropped: "Dropped",
+  };
+  return labels[key] || value || "Inbox";
+}
+
+function resultKey(paper: SearchPaper) {
+  return paper.doi || paper.id;
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || "");
+      resolve(result.includes(",") ? result.split(",", 2)[1] : result);
+    };
+    reader.onerror = () => reject(reader.error || new Error("读取 PDF 文件失败。"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function zoteroSyncLabel(paper: Paper) {
+  if (!(paper.zotero_item_key || paper.zotero_key)) return "未同步 Zotero";
+  if (paper.zotero_pdf_attached) return "Zotero：PDF 已挂载";
+  const labels: Record<string, string> = {
+    attached: "Zotero：PDF 已挂载",
+    missing_pdf_url: "Zotero：缺少 PDF 链接",
+    attach_failed: "Zotero：PDF 挂载失败",
+    missing_in_zotero: "Zotero：未发现 PDF",
+    item_failed: "Zotero：条目失败",
+    unknown: "Zotero：等待同步",
+  };
+  return labels[paper.zotero_pdf_status || "unknown"] || "Zotero：等待同步";
+}
+
+function paperStatusLabel(value?: string | null) {
+  const labels: Record<string, string> = {
+    Inbox: "收件箱",
+    Candidate: "候选文献",
+    "To Read": "待读",
+    Skimming: "略读中",
+    Reading: "阅读中",
+    "Deep Reading": "精读中",
+    Finished: "已完成",
+    Reference: "参考文献",
+    Dropped: "已移除",
+  };
+  return labels[normalizePaperStatus(value)] || value || "收件箱";
+}
+
+function priorityLabel(value?: string | null) {
+  const labels: Record<string, string> = { high: "高优先级", normal: "普通优先级", low: "低优先级" };
+  return labels[(value || "normal").toLowerCase()] || value || "普通优先级";
+}
+
+function readingModeLabel(value?: string | null) {
+  const labels: Record<string, string> = { SCAN: "快速浏览", SKIM: "略读", READ: "阅读", DEEP: "精读" };
+  return labels[(value || "").toUpperCase()] || value || "未设置阅读模式";
+}
+
+function readingPurposeLabel(value?: string | null) {
+  const labels: Record<string, string> = {
+    Project: "项目相关",
+    "Literature Review": "文献综述",
+    "Learn Method": "学习方法",
+    Reproduce: "复现",
+    "Compare Baseline": "对比基线",
+    "Research Idea": "研究想法",
+    "General Interest": "一般兴趣",
+  };
+  return labels[value || "General Interest"] || value || "一般兴趣";
+}
+
+function taskPriorityLabel(value?: string | null) {
+  const labels: Record<string, string> = { high: "高优先级", medium: "中优先级", low: "低优先级" };
+  return labels[(value || "medium").toLowerCase()] || value || "中优先级";
+}
+
+function taskStatusLabel(value?: string | null) {
+  const labels: Record<string, string> = { todo: "待办", doing: "进行中", done: "已完成" };
+  return labels[(value || "todo").toLowerCase()] || value || "待办";
+}
+
 
 function normalizeVenue(value?: string | null) {
   if (!value) return "Others";
