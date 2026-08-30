@@ -168,12 +168,19 @@ class PaperBase(BaseModel):
     queued_at: datetime | None = None
     doi: str | None = None
     url: str | None = None
+    source_url: str | None = None
     pdf_url: str | None = None
     zotero_key: str | None = None
     zotero_item_key: str | None = None
+    zotero_attachment_key: str | None = None
     zotero_library: str | None = None
     zotero_pdf_attached: bool = False
     zotero_pdf_status: str | None = None
+    pdf_status: str = "NONE"
+    pdf_source: str | None = None
+    pdf_last_checked_at: datetime | None = None
+    pdf_error_code: str | None = None
+    pdf_error_message: str | None = None
     zotero_synced_at: datetime | None = None
     related_project_id: int | None = None
 
@@ -198,12 +205,19 @@ class PaperUpdate(BaseModel):
     queued_at: datetime | None = None
     doi: str | None = None
     url: str | None = None
+    source_url: str | None = None
     pdf_url: str | None = None
     zotero_key: str | None = None
     zotero_item_key: str | None = None
+    zotero_attachment_key: str | None = None
     zotero_library: str | None = None
     zotero_pdf_attached: bool | None = None
     zotero_pdf_status: str | None = None
+    pdf_status: str | None = None
+    pdf_source: str | None = None
+    pdf_last_checked_at: datetime | None = None
+    pdf_error_code: str | None = None
+    pdf_error_message: str | None = None
     zotero_synced_at: datetime | None = None
     related_project_id: int | None = None
 

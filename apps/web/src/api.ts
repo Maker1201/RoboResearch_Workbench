@@ -175,6 +175,8 @@ export const api = {
     body: JSON.stringify(payload),
   }),
   addExistingPaperToZotero: (id: number) => request<Paper>(`/papers/${id}/zotero`, { method: "POST" }),
+  checkPaperZotero: (id: number) => request<Paper>(`/papers/${id}/zotero/check`, { method: "POST" }),
+  paperOpenLinks: (id: number) => request<{ article_url?: string | null; zotero_item_uri?: string | null; zotero_attachment_uri?: string | null }>(`/papers/${id}/open-links`),
   attachPaperPdf: (id: number, payload: { content_base64: string; filename?: string | null; content_type?: string | null; pdf_url?: string | null }) => request<Paper>(`/papers/${id}/attach-pdf`, {
     method: "POST",
     body: JSON.stringify(payload),

@@ -71,11 +71,12 @@ def test_resolve_pdf_for_paper_discovers_pdf_from_homepage_meta():
         "https://cdn.example.org/item.pdf": FakeResponse(b"%PDF-1.7 test", "application/pdf"),
     })
 
-    content, content_type, pdf_url = asyncio.run(_resolve_pdf_for_paper(client, paper))
+    resolved = asyncio.run(_resolve_pdf_for_paper(client, paper))
 
-    assert content.startswith(b"%PDF")
-    assert content_type == "application/pdf"
-    assert pdf_url == "https://cdn.example.org/item.pdf"
+    assert resolved.content.startswith(b"%PDF")
+    assert resolved.content_type == "application/pdf"
+    assert resolved.url == "https://cdn.example.org/item.pdf"
+    assert resolved.status == "AVAILABLE"
 
 
 def test_resolve_pdf_for_paper_discovers_pdf_from_homepage_link_text():
@@ -95,8 +96,8 @@ def test_resolve_pdf_for_paper_discovers_pdf_from_homepage_link_text():
 
     resolved = asyncio.run(_resolve_pdf_for_paper(client, paper))
 
-    assert resolved is not None
-    assert resolved[2] == "https://example.org/articles/42/fulltext.pdf"
+    assert resolved.content is not None
+    assert resolved.url == "https://example.org/articles/42/fulltext.pdf"
 
 def test_resolve_pdf_for_paper_rejects_html_returned_from_pdf_url():
     paper = Paper(
@@ -111,7 +112,8 @@ def test_resolve_pdf_for_paper_rejects_html_returned_from_pdf_url():
 
     resolved = asyncio.run(_resolve_pdf_for_paper(client, paper))
 
-    assert resolved is None
+    assert resolved.content is None
+    assert resolved.error_code == "BROWSER_REQUIRED"
 
 def test_pdf_link_parser_discovers_embedded_pdf():
     parser = PdfLinkParser("https://example.org/papers/item")
@@ -140,8 +142,8 @@ def test_resolve_pdf_for_paper_discovers_download_link_without_pdf_suffix():
 
     resolved = asyncio.run(_resolve_pdf_for_paper(client, paper))
 
-    assert resolved is not None
-    assert resolved[2] == "https://example.org/articles/99/download?format=fulltext"
+    assert resolved.content is not None
+    assert resolved.url == "https://example.org/articles/99/download?format=fulltext"
 
 def test_ieee_pdf_request_headers_include_referer():
     headers = _pdf_request_headers("https://ieeexplore.ieee.org/stampPDF/getPDF.jsp?tp=&arnumber=11247714&ref=")
@@ -149,3 +151,40 @@ def test_ieee_pdf_request_headers_include_referer():
     assert "Mozilla/5.0" in headers["User-Agent"]
     assert headers["Referer"] == "https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=11247714"
 
+
+
+def test_resolve_pdf_for_paper_rejects_fake_pdf_content_type_without_magic_header():
+    paper = Paper(
+        id="paper-5",
+        title="Fake PDF Header",
+        pdf_url="https://example.org/fake.pdf",
+        is_oa=True,
+    )
+    client = FakeClient({
+        "https://example.org/fake.pdf": FakeResponse(b"not really a pdf", "application/pdf"),
+    })
+
+    resolved = asyncio.run(_resolve_pdf_for_paper(client, paper))
+
+    assert resolved.content is None
+    assert resolved.error_code == "INVALID_PDF_RESPONSE"
+
+
+def test_restricted_publisher_without_oa_url_requires_browser():
+    paper = Paper(
+        id="paper-6",
+        title="IEEE Paper",
+        url="https://ieeexplore.ieee.org/document/1234567",
+        is_oa=False,
+    )
+    client = FakeClient({
+        "https://ieeexplore.ieee.org/document/1234567": FakeResponse(b"<html>Sign in</html>", "text/html"),
+        "https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=1234567": FakeResponse(b"<html>Sign in</html>", "text/html"),
+        "https://ieeexplore.ieee.org/stampPDF/getPDF.jsp?tp=&arnumber=1234567": FakeResponse(b"<html>Sign in</html>", "text/html"),
+        "https://ieeexplore.ieee.org/stampPDF/getPDF.jsp?tp=&arnumber=1234567&ref=": FakeResponse(b"<html>Sign in</html>", "text/html"),
+    })
+
+    resolved = asyncio.run(_resolve_pdf_for_paper(client, paper))
+
+    assert resolved.content is None
+    assert resolved.status == "AUTH_REQUIRED"

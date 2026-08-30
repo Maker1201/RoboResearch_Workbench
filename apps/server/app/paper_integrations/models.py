@@ -54,3 +54,4 @@ class ZoteroAttachPdfRequest(BaseModel):
     filename: str | None = None
     content_type: str = "application/pdf"
     content_base64: str
+    source: str = "MANUAL"

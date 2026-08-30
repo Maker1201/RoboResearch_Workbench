@@ -207,7 +207,7 @@ def test_attach_pdf_to_paper_updates_local_zotero_status(monkeypatch):
         assert payload.item_key == "ZITEM123"
         assert payload.filename == "paper.pdf"
         assert payload.content_base64 == "JVBERi0xLjc="
-        return {"status": "ok", "message": "PDF 已挂载到 Zotero。", "item_key": payload.item_key}
+        return {"status": "ok", "message": "PDF 已挂载到 Zotero。", "item_key": payload.item_key, "attachment_key": "ZATT123", "pdf_source": "LOCAL_FILE"}
 
     monkeypatch.setattr("app.main.attach_pdf_to_zotero", fake_attach_pdf_to_zotero)
 
@@ -220,6 +220,9 @@ def test_attach_pdf_to_paper_updates_local_zotero_status(monkeypatch):
     assert response.status_code == 200
     data = response.json()
     assert data["zotero_pdf_attached"] is True
-    assert data["zotero_pdf_status"] == "attached"
+    assert data["zotero_pdf_status"] == "ATTACHED"
+    assert data["pdf_status"] == "ATTACHED"
+    assert data["pdf_source"] == "LOCAL_FILE"
+    assert data["zotero_attachment_key"] == "ZATT123"
     assert data["zotero_synced_at"] is not None
 

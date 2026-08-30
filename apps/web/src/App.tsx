@@ -1909,6 +1909,10 @@ function Papers({ t, papers, projects, notes, refresh, setMessage, setLoading }:
     }
     setLoading(true);
     try {
+      if (!(await fileStartsWithPdf(file))) {
+        setMessage("请选择真实 PDF 文件，当前文件没有 PDF 文件头。");
+        return;
+      }
       const content = await fileToBase64(file);
       const saved = await api.attachPaperPdf(paper.id, {
         content_base64: content,
@@ -1920,7 +1924,7 @@ function Papers({ t, papers, projects, notes, refresh, setMessage, setLoading }:
       await refresh();
       setMessage("PDF 已挂载到 Zotero，并已同步工作台状态。");
     } catch (error) {
-      setMessage(`PDF 挂载失败：${friendlyError(error)}`);
+      setMessage(`PDF 无法挂载到 Zotero：${friendlyError(error)}`);
     } finally {
       setLoading(false);
     }
@@ -1947,12 +1951,60 @@ function Papers({ t, papers, projects, notes, refresh, setMessage, setLoading }:
     }
   }
 
-  function renderPaperRow(paper: Paper, actions: ReactNode) {
-    return <article className={`paper-card paper-workflow-card ${selectedPaper?.id === paper.id ? "selected" : ""}`} key={paper.id} onClick={() => setSelectedPaperId(paper.id)}>
+
+  async function checkZoteroForPaper(paper: Paper) {
+    setLoading(true);
+    try {
+      const saved = await api.checkPaperZotero(paper.id);
+      setSelectedPaperId(saved.id);
+      await refresh();
+      setMessage(saved.zotero_pdf_attached ? "已从 Zotero 检测到 PDF 附件。" : "Zotero 条目中暂未发现 PDF 附件。");
+    } catch (error) {
+      setMessage(`从 Zotero 检查 PDF 失败：${friendlyError(error)}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function paperArticleUrl(paper: Paper) {
+    return paper.url || paper.source_url || (paper.doi ? `https://doi.org/${paper.doi}` : null);
+  }
+
+  function zoteroItemUri(paper: Paper) {
+    const key = paper.zotero_item_key || paper.zotero_key;
+    return key ? `zotero://select/library/items/${key}` : null;
+  }
+
+  function zoteroAttachmentUri(paper: Paper) {
+    return paper.zotero_attachment_key ? `zotero://select/library/items/${paper.zotero_attachment_key}` : null;
+  }
+
+  function pdfNeedsAssistance(paper: Paper) {
+    const status = (paper.pdf_status || paper.zotero_pdf_status || "").toUpperCase();
+    return Boolean(paper.zotero_item_key || paper.zotero_key) && !paper.zotero_pdf_attached && ["BROWSER_REQUIRED", "AUTH_REQUIRED", "FAILED", "NONE"].includes(status);
+  }
+
+  function renderPdfAssist(paper: Paper) {
+    if (!pdfNeedsAssistance(paper)) return null;
+    const articleUrl = paperArticleUrl(paper);
+    return <div className="pdf-assist-box">
+      <strong>{pdfAssistTitle(paper)}</strong>
+      <span>{paper.pdf_error_message || "PDF 无法自动获取。该出版社可能需要浏览器登录状态、机构权限或 Zotero Connector。"}</span>
+      <div className="toolbar pdf-assist-actions">
+        {articleUrl && <a href={articleUrl} target="_blank"><Link size={16} />在浏览器打开</a>}
+        <button onClick={() => void checkZoteroForPaper(paper)}><RefreshCw size={16} />从 Zotero 检查 PDF</button>
+        <label className="file-action-button"><UploadCloud size={16} />选择本地 PDF<input type="file" accept="application/pdf,.pdf" onChange={(event) => void attachPdfFile(paper, event.currentTarget.files?.[0] || null)} /></label>
+      </div>
+    </div>;
+  }
+
+  function renderPaperRow(paper: Paper, actions: ReactNode, className = "") {
+    return <article className={`paper-card paper-workflow-card ${className} ${selectedPaper?.id === paper.id ? "selected" : ""}`} key={paper.id} onClick={() => setSelectedPaperId(paper.id)}>
       <div className="paper-card-top"><span>{paper.venue} · {paper.year || t.noYear}</span><span>{paperStatusLabel(paper.status)}</span></div>
       <h3>{paper.title}</h3>
       {paper.abstract && <p className="abstract-snippet">{paper.abstract.slice(0, 360)}</p>}
-      <div className="tag-cloud"><span>{priorityLabel(paper.priority)}</span>{paper.reading_purpose && <span>{readingPurposeLabel(paper.reading_purpose)}</span>}{paper.reading_mode && <span>{readingModeLabel(paper.reading_mode)}</span>}{(paper.zotero_item_key || paper.zotero_key) && <span>{zoteroSyncLabel(paper)}</span>}</div>
+      <div className="tag-cloud"><span>{priorityLabel(paper.priority)}</span>{paper.reading_purpose && <span>{readingPurposeLabel(paper.reading_purpose)}</span>}{paper.reading_mode && <span>{readingModeLabel(paper.reading_mode)}</span>}{(paper.zotero_item_key || paper.zotero_key) && <span>{zoteroSyncLabel(paper)}</span>}{paper.pdf_source && <span>{pdfSourceLabel(paper.pdf_source)}</span>}</div>
+      {renderPdfAssist(paper)}
       <div className="toolbar" onClick={(event) => event.stopPropagation()}>{actions}</div>
     </article>;
   }
@@ -1978,7 +2030,7 @@ function Papers({ t, papers, projects, notes, refresh, setMessage, setLoading }:
           </div>
         </div>
         <div className="panel literature-results-panel">
-          <div className="panel-heading compact-heading result-list-heading"><h2>{t.results}</h2><div className="toolbar"><span className="muted">已选择 {selectedResultList.length} 篇</span><button disabled={!visibleResults.length} onClick={selectVisibleResults}>全选当前结果</button><button disabled={!selectedResultList.length} onClick={() => setSelectedResults({})}>清空选择</button><button disabled={!selectedResultList.length} onClick={() => void saveSelectedCandidates()}><Save size={16} />批量候选</button><button disabled={!selectedResultList.length} onClick={() => void addSelectedToLibrary()}><Send size={16} />批量加入 Zotero</button></div></div>
+          <div className="panel-heading compact-heading result-list-heading"><h2>{t.results}</h2></div>
           <div className="paper-grid workflow-result-grid">{visibleResults.map((paper) => {
             const key = resultKey(paper);
             const selected = Boolean(selectedResults[key]);
@@ -1997,17 +2049,26 @@ function Papers({ t, papers, projects, notes, refresh, setMessage, setLoading }:
           })}</div>
         </div>
       </div>}
+      {section === "Search" && visibleResults.length > 0 && <div className="floating-bulk-actions" role="status" aria-live="polite">
+        <strong>已选择 {selectedResultList.length} 篇</strong>
+        <div className="toolbar">
+          <button disabled={!visibleResults.length} onClick={selectVisibleResults}>全选当前结果</button>
+          <button disabled={!selectedResultList.length} onClick={() => setSelectedResults({})}><X size={16} />清空选择</button>
+          <button disabled={!selectedResultList.length} onClick={() => void saveSelectedCandidates()}><Save size={16} />批量候选</button>
+          <button className="primary" disabled={!selectedResultList.length} onClick={() => void addSelectedToLibrary()}><Send size={16} />批量加入 Zotero</button>
+        </div>
+      </div>}
 
       {section === "Candidates" && <div className="paper-grid">{candidates.map((paper) => renderPaperRow(paper, <><button onClick={() => void updatePaperStatus(paper, "Dropped")}><X size={16} />移除</button><button onClick={() => void api.addExistingPaperToZotero(paper.id).then((saved) => { setSelectedPaperId(saved.id); setMessage("已添加到 Zotero 和文献库。"); return refresh(); })}><Send size={16} />Zotero / 文献库</button><button onClick={() => void queuePaper(paper)}><Clock3 size={16} />加入队列</button></>))}</div>}
 
       {section === "Library" && <div className="literature-grid">
         <div className="panel compact-filter-panel"><div className="panel-heading compact-heading"><h2>{t.saved}</h2><button onClick={() => void syncZotero()}><RefreshCw size={16} />同步 Zotero</button></div><div className="tabs">{["", ...venues].map((item) => <button key={item || "all"} className={venue === item ? "active-pill" : ""} onClick={() => setVenue(item)}>{item || t.all}</button>)}</div><div className="tabs">{["", ...topicFilters].map((item) => <button key={item || "all-topics"} className={topic === item ? "active-pill" : ""} onClick={() => setTopic(item)}>{item || "全部主题"}</button>)}</div></div>
-        <div className="paper-grid">{filteredLibrary.map((paper) => renderPaperRow(paper, <><button onClick={() => void queuePaper(paper)}><Clock3 size={16} />加入队列</button><button onClick={() => void createNote(paper)}><NotebookPen size={16} />笔记</button>{(paper.zotero_item_key || paper.zotero_key) && !paper.zotero_pdf_attached && <label className="file-action-button"><UploadCloud size={16} />挂载 PDF<input type="file" accept="application/pdf,.pdf" onChange={(event) => void attachPdfFile(paper, event.currentTarget.files?.[0] || null)} /></label>}{paper.url && <a href={paper.url} target="_blank"><Link size={16} />{t.open}</a>}</>))}</div>
+        <div className="paper-grid">{filteredLibrary.map((paper) => renderPaperRow(paper, <><button onClick={() => void queuePaper(paper)}><Clock3 size={16} />加入队列</button><button onClick={() => void createNote(paper)}><NotebookPen size={16} />笔记</button>{(paper.zotero_item_key || paper.zotero_key) && <button onClick={() => void checkZoteroForPaper(paper)}><RefreshCw size={16} />Check Zotero</button>}{zoteroItemUri(paper) && <a href={zoteroItemUri(paper)!}><BookOpen size={16} />Open in Zotero</a>}{zoteroAttachmentUri(paper) && <a href={zoteroAttachmentUri(paper)!}><Eye size={16} />Open PDF</a>}{!paper.zotero_pdf_attached && (paper.zotero_item_key || paper.zotero_key) && <label className="file-action-button"><UploadCloud size={16} />Attach Local PDF<input type="file" accept="application/pdf,.pdf" onChange={(event) => void attachPdfFile(paper, event.currentTarget.files?.[0] || null)} /></label>}{paperArticleUrl(paper) && <a href={paperArticleUrl(paper)!} target="_blank"><Link size={16} />Open Article in Browser</a>}</>))}</div>
       </div>}
 
       {section === "Reading Queue" && <div className="literature-grid">
         <div className="panel queue-control-panel"><h2>队列设置</h2><div className="form-grid"><label><span>优先级</span><select value={queueForm.priority} onChange={(event) => setQueueForm({ ...queueForm, priority: event.target.value })}>{paperPriorities.map((item) => <option key={item} value={item}>{priorityLabel(item)}</option>)}</select></label><label><span>阅读目的</span><select value={queueForm.reading_purpose} onChange={(event) => setQueueForm({ ...queueForm, reading_purpose: event.target.value })}>{readingPurposes.map((item) => <option key={item} value={item}>{readingPurposeLabel(item)}</option>)}</select></label><label><span>关联项目</span><select value={queueForm.related_project_id} onChange={(event) => setQueueForm({ ...queueForm, related_project_id: event.target.value })}><option value="">不关联项目</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label><label><span>阅读模式</span><select value={queueForm.reading_mode} onChange={(event) => setQueueForm({ ...queueForm, reading_mode: event.target.value })}>{readingModes.map((item) => <option key={item} value={item}>{readingModeLabel(item)}</option>)}</select></label></div></div>
-        <div className="paper-grid">{queue.map((paper) => renderPaperRow(paper, <><select value={paper.status} onChange={(event) => void updatePaperStatus(paper, event.target.value)}>{readingStatuses.map((item) => <option key={item} value={item}>{paperStatusLabel(item)}</option>)}</select><select value={paper.reading_mode || ""} onChange={(event) => void updatePaperMode(paper, event.target.value)}><option value="">阅读模式</option>{readingModes.map((item) => <option key={item} value={item}>{readingModeLabel(item)}</option>)}</select><button onClick={() => void createNote(paper)}><NotebookPen size={16} />笔记</button></>))}</div>
+        <div className="paper-grid reading-queue-grid">{queue.map((paper) => renderPaperRow(paper, <><select value={paper.status} onChange={(event) => void updatePaperStatus(paper, event.target.value)}>{readingStatuses.map((item) => <option key={item} value={item}>{paperStatusLabel(item)}</option>)}</select><select value={paper.reading_mode || ""} onChange={(event) => void updatePaperMode(paper, event.target.value)}><option value="">阅读模式</option>{readingModes.map((item) => <option key={item} value={item}>{readingModeLabel(item)}</option>)}</select><button onClick={() => void createNote(paper)}><NotebookPen size={16} />笔记</button></>, "reading-queue-card"))}</div>
       </div>}
 
       {section === "Reading Notes" && <div className="literature-grid note-workbench-grid">
@@ -2353,6 +2414,11 @@ function resultKey(paper: SearchPaper) {
   return paper.doi || paper.id;
 }
 
+async function fileStartsWithPdf(file: File): Promise<boolean> {
+  const header = new Uint8Array(await file.slice(0, 5).arrayBuffer());
+  return String.fromCharCode(...header) === "%PDF-";
+}
+
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -2368,15 +2434,38 @@ function fileToBase64(file: File): Promise<string> {
 function zoteroSyncLabel(paper: Paper) {
   if (!(paper.zotero_item_key || paper.zotero_key)) return "未同步 Zotero";
   if (paper.zotero_pdf_attached) return "Zotero：PDF 已挂载";
+  const status = (paper.pdf_status || paper.zotero_pdf_status || "UNKNOWN").toUpperCase();
   const labels: Record<string, string> = {
-    attached: "Zotero：PDF 已挂载",
-    missing_pdf_url: "Zotero：缺少 PDF 链接",
-    attach_failed: "Zotero：PDF 挂载失败",
-    missing_in_zotero: "Zotero：未发现 PDF",
-    item_failed: "Zotero：条目失败",
-    unknown: "Zotero：等待同步",
+    NONE: "Zotero：未发现 PDF",
+    SEARCHING: "Zotero：正在查找 PDF",
+    AVAILABLE: "Zotero：PDF 可用",
+    ATTACHED: "Zotero：PDF 已挂载",
+    BROWSER_REQUIRED: "需要浏览器打开",
+    AUTH_REQUIRED: "需要登录/机构权限",
+    FAILED: "自动获取失败",
+    UNKNOWN: "Zotero：等待同步",
   };
-  return labels[paper.zotero_pdf_status || "unknown"] || "Zotero：等待同步";
+  return labels[status] || "Zotero：等待同步";
+}
+
+function pdfAssistTitle(paper: Paper) {
+  const status = (paper.pdf_status || paper.zotero_pdf_status || "").toUpperCase();
+  if (status === "AUTH_REQUIRED") return "PDF 无法自动获取：需要登录或机构权限。";
+  if (status === "BROWSER_REQUIRED") return "PDF 无法自动获取：需要浏览器环境。";
+  return "PDF 无法自动获取。";
+}
+
+function pdfSourceLabel(value?: string | null) {
+  const labels: Record<string, string> = {
+    DIRECT_DOWNLOAD: "PDF 来源：直链",
+    OPEN_ACCESS: "PDF 来源：开放获取",
+    ZOTERO_CONNECTOR: "PDF 来源：Zotero Connector",
+    ZOTERO: "PDF 来源：Zotero",
+    LOCAL_FILE: "PDF 来源：本地挂载",
+    MANUAL: "PDF 来源：手动",
+    UNKNOWN: "PDF 来源：未知",
+  };
+  return labels[(value || "UNKNOWN").toUpperCase()] || labels.UNKNOWN;
 }
 
 function paperStatusLabel(value?: string | null) {

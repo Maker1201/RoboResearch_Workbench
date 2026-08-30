@@ -79,15 +79,26 @@ def migrate_schema() -> None:
                 "reading_mode": "VARCHAR(40)",
                 "reading_purpose": "VARCHAR(80)",
                 "queued_at": "DATETIME",
+                "source_url": "VARCHAR(1000)",
                 "zotero_item_key": "VARCHAR(80)",
+                "zotero_attachment_key": "VARCHAR(80)",
                 "zotero_library": "VARCHAR(120)",
                 "zotero_pdf_attached": "BOOLEAN DEFAULT 0",
                 "zotero_pdf_status": "VARCHAR(80)",
+                "pdf_status": "VARCHAR(80) DEFAULT 'NONE'",
+                "pdf_source": "VARCHAR(80)",
+                "pdf_last_checked_at": "DATETIME",
+                "pdf_error_code": "VARCHAR(120)",
+                "pdf_error_message": "VARCHAR(500)",
                 "zotero_synced_at": "DATETIME",
             }
             for name, ddl in additions.items():
                 if name not in columns:
                     conn.execute(text(f"ALTER TABLE papers ADD COLUMN {name} {ddl}"))
+            if "source_url" not in columns and "url" in columns:
+                conn.execute(text("UPDATE papers SET source_url = url WHERE source_url IS NULL"))
+            if "pdf_status" not in columns:
+                conn.execute(text("UPDATE papers SET pdf_status = CASE WHEN COALESCE(zotero_pdf_attached, 0) = 1 THEN 'ATTACHED' ELSE 'NONE' END"))
         if "reading_notes" in existing_tables:
             columns = {column["name"] for column in inspector.get_columns("reading_notes")}
             additions = {
@@ -303,6 +314,7 @@ def search_paper_to_db_payload(paper: SearchPaperModel | dict[str, Any], status:
         "tags": ", ".join(model.matched_keywords),
         "doi": normalize_doi(model.doi),
         "url": model.url,
+        "source_url": model.url,
         "pdf_url": model.pdf_url,
         "status": status,
     }
@@ -345,6 +357,47 @@ def db_paper_to_search_model(paper: models.Paper) -> SearchPaperModel:
     )
 
 
+def apply_pdf_state(
+    paper: models.Paper,
+    *,
+    status: str,
+    source: str | None = None,
+    attachment_key: str | None = None,
+    error_code: str | None = None,
+    error_message: str | None = None,
+) -> None:
+    paper.pdf_status = status
+    paper.zotero_pdf_status = status
+    paper.zotero_pdf_attached = status == "ATTACHED"
+    if source is not None:
+        paper.pdf_source = source
+    if attachment_key:
+        paper.zotero_attachment_key = attachment_key
+    paper.pdf_error_code = error_code
+    paper.pdf_error_message = (error_message or "")[:500] or None
+    paper.pdf_last_checked_at = datetime.utcnow()
+    paper.zotero_synced_at = datetime.utcnow()
+
+
+def apply_zotero_sync_state_to_paper(paper: models.Paper, state: dict[str, Any]) -> None:
+    attachment_key = state.get("zotero_attachment_key")
+    if state.get("pdf_status") == "ATTACHED" or attachment_key:
+        apply_pdf_state(
+            paper,
+            status="ATTACHED",
+            source=state.get("pdf_source") or "ZOTERO",
+            attachment_key=attachment_key,
+        )
+    else:
+        apply_pdf_state(
+            paper,
+            status="NONE",
+            source=state.get("pdf_source"),
+            error_code="PDF_NOT_FOUND",
+            error_message="No PDF child attachment was found in Zotero.",
+        )
+
+
 def upsert_paper(db: Session, data: dict[str, Any]) -> models.Paper:
     existing = find_existing_paper(db, data["title"], data.get("year"), data.get("doi"))
     if existing:
@@ -377,8 +430,15 @@ def apply_zotero_import_result_to_payload(db: Session, data: dict[str, Any], zot
         data["zotero_item_key"] = item_key
         data["zotero_key"] = item_key
     data["zotero_library"] = setting_value(db, "integrations.zotero.library") or "My Library"
-    data["zotero_pdf_attached"] = bool(item.get("pdf_attached"))
-    data["zotero_pdf_status"] = item.get("pdf_status") or "unknown"
+    pdf_status = item.get("pdf_status") or ("ATTACHED" if item.get("pdf_attached") else "NONE")
+    data["zotero_attachment_key"] = item.get("zotero_attachment_key")
+    data["zotero_pdf_attached"] = pdf_status == "ATTACHED"
+    data["zotero_pdf_status"] = pdf_status
+    data["pdf_status"] = pdf_status
+    data["pdf_source"] = item.get("pdf_source")
+    data["pdf_last_checked_at"] = datetime.utcnow()
+    data["pdf_error_code"] = item.get("pdf_error_code")
+    data["pdf_error_message"] = item.get("pdf_error_message")
     data["zotero_synced_at"] = datetime.utcnow()
 
 
@@ -900,6 +960,7 @@ def create_paper(payload: schemas.PaperCreate, db: Session = Depends(get_db)):
     data["reading_mode"] = normalize_reading_mode(data.get("reading_mode"))
     data["doi"] = normalize_doi(data.get("doi"))
     data["venue"] = normalize_venue(data.get("venue"))
+    data["source_url"] = data.get("source_url") or data.get("url")
     return upsert_paper(db, data)
 
 
@@ -968,14 +1029,18 @@ async def attach_pdf_to_paper(paper_id: int, payload: schemas.PaperPdfAttachRequ
             filename=payload.filename or f"{paper.title}.pdf",
             content_type=payload.content_type or "application/pdf",
             content_base64=payload.content_base64,
+            source="LOCAL_FILE",
         ))
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     if result.get("status") in {"ok", "skipped"}:
-        paper.zotero_pdf_attached = True
-        paper.zotero_pdf_status = "attached"
-        paper.zotero_synced_at = datetime.utcnow()
+        apply_pdf_state(
+            paper,
+            status="ATTACHED",
+            source=result.get("pdf_source") or "LOCAL_FILE",
+            attachment_key=result.get("attachment_key"),
+        )
         db.commit()
         db.refresh(paper)
     return paper
@@ -989,7 +1054,15 @@ def update_paper(paper_id: int, payload: schemas.PaperUpdate, db: Session = Depe
         payload.reading_mode = normalize_reading_mode(payload.reading_mode)
     if payload.doi is not None:
         payload.doi = normalize_doi(payload.doi)
-    return crud.update_item(db, models.Paper, paper_id, payload)
+    data = payload.model_dump(exclude_unset=True)
+    if "url" in data and "source_url" not in data:
+        data["source_url"] = data.get("url")
+    item = crud.get_item(db, models.Paper, paper_id)
+    for key, value in data.items():
+        setattr(item, key, value)
+    db.commit()
+    db.refresh(item)
+    return item
 
 
 @app.post("/papers/{paper_id}/zotero", response_model=schemas.PaperOut)
@@ -1001,6 +1074,50 @@ async def add_existing_paper_to_zotero(paper_id: int, db: Session = Depends(get_
     db.commit()
     db.refresh(paper)
     return paper
+
+
+@app.post("/papers/{paper_id}/zotero/check", response_model=schemas.PaperOut)
+async def check_paper_zotero_attachment(paper_id: int, db: Session = Depends(get_db)):
+    paper = crud.get_item(db, models.Paper, paper_id)
+    item_key = paper.zotero_item_key or paper.zotero_key
+    if not item_key:
+        apply_pdf_state(
+            paper,
+            status="NONE",
+            error_code="PDF_NOT_FOUND",
+            error_message="This paper is not linked to a Zotero item.",
+        )
+        db.commit()
+        db.refresh(paper)
+        return paper
+    try:
+        state = await get_zotero_item_sync_state(item_key)
+    except Exception as exc:
+        apply_pdf_state(
+            paper,
+            status="FAILED",
+            error_code="ZOTERO_NOT_RUNNING",
+            error_message=str(exc),
+        )
+        db.commit()
+        db.refresh(paper)
+        return paper
+    apply_zotero_sync_state_to_paper(paper, state)
+    db.commit()
+    db.refresh(paper)
+    return paper
+
+
+@app.get("/papers/{paper_id}/open-links")
+def paper_open_links(paper_id: int, db: Session = Depends(get_db)) -> dict:
+    paper = crud.get_item(db, models.Paper, paper_id)
+    item_key = paper.zotero_item_key or paper.zotero_key
+    attachment_key = paper.zotero_attachment_key
+    return {
+        "article_url": paper.url or paper.source_url or (f"https://doi.org/{paper.doi}" if paper.doi else None),
+        "zotero_item_uri": f"zotero://select/library/items/{item_key}" if item_key else None,
+        "zotero_attachment_uri": f"zotero://select/library/items/{attachment_key}" if attachment_key else None,
+    }
 
 
 @app.post("/zotero/sync")
@@ -1017,9 +1134,7 @@ async def sync_zotero_papers(db: Session = Depends(get_db)) -> dict:
         except Exception as exc:
             failed.append({"item_key": item_key, "title": paper.title, "error": str(exc)})
             continue
-        paper.zotero_pdf_attached = bool(state.get("pdf_attached"))
-        paper.zotero_pdf_status = "attached" if paper.zotero_pdf_attached else "missing_in_zotero"
-        paper.zotero_synced_at = datetime.utcnow()
+        apply_zotero_sync_state_to_paper(paper, state)
         if state.get("title"):
             paper.title = state["title"]
         if state.get("doi"):

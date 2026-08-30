@@ -6,7 +6,6 @@ import re
 import time
 from dataclasses import dataclass
 from html.parser import HTMLParser
-from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urljoin, urlparse, urlunparse
 import httpx
@@ -16,7 +15,6 @@ from .models import Paper, ZoteroAttachPdfRequest, ZoteroImportRequest
 ZOTERO_BASE_URL = "http://127.0.0.1:23119/api"
 ZOTERO_APP_NAME = "Academic Paper Finder"
 MAX_PDF_BYTES = 80 * 1024 * 1024
-PDF_LIBRARY_DIR = Path(__file__).resolve().parents[4] / "data" / "papers"
 BIBLIOGRAPHIC_ITEM_TYPES = {
     "journalArticle",
     "conferencePaper",
@@ -41,6 +39,54 @@ class ZoteroWriteResult:
     reused: int
     created: int
     item_results: list[dict[str, Any]]
+
+
+@dataclass
+class ZoteroPdfAttachment:
+    key: str
+    source: str
+
+
+@dataclass
+class PdfResolution:
+    status: str
+    source: str | None = None
+    content: bytes | None = None
+    content_type: str | None = None
+    url: str | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+
+
+RESTRICTED_PUBLISHER_HOSTS = (
+    "ieeexplore.ieee.org",
+    "sciencedirect.com",
+    "www.sciencedirect.com",
+    "link.springer.com",
+    "dl.acm.org",
+)
+PUBLIC_REPOSITORY_HOST_HINTS = (
+    "arxiv.org",
+    "openreview.net",
+    "proceedings.mlr.press",
+    "aclanthology.org",
+    "biorxiv.org",
+    "medrxiv.org",
+    "pmc.ncbi.nlm.nih.gov",
+)
+HTML_AUTH_HINTS = (
+    "sign in",
+    "login",
+    "institutional login",
+    "authentication",
+    "access denied",
+    "purchase access",
+    "subscribe",
+    "shibboleth",
+    "saml",
+    "carsi",
+    "captcha",
+)
 
 
 async def zotero_status() -> dict:
@@ -267,13 +313,15 @@ async def _create_items(
         parent_key = item_keys_by_index.get(index)
         if not parent_key:
             continue
-        if await _item_has_pdf_attachment(client, parent_key):
+        existing_attachment = await _find_pdf_attachment(client, parent_key)
+        if existing_attachment:
             attached_by_index[index] = True
-            pdf_status_by_index[index] = "attached"
+            pdf_status_by_index[index] = "ATTACHED"
             continue
-        ok, pdf_status = await _attach_pdf_from_url(client, server_id, api_key, parent_key, paper)
+        attach_result = await _attach_pdf_from_url(client, server_id, api_key, parent_key, paper)
+        ok = attach_result.get("pdf_status") == "ATTACHED"
         attached_by_index[index] = ok
-        pdf_status_by_index[index] = pdf_status
+        pdf_status_by_index[index] = attach_result.get("pdf_status", "FAILED")
         if ok:
             attached_pdfs += 1
         else:
@@ -284,16 +332,22 @@ async def _create_items(
     for index, paper in enumerate(papers):
         item_key = item_keys_by_index.get(index)
         if not item_key:
-            item_results.append({"index": index, "title": paper.title, "status": "failed", "item_key": None, "pdf_attached": False, "pdf_status": "item_failed", "reused": False})
+            item_results.append({"index": index, "title": paper.title, "status": "failed", "item_key": None, "pdf_attached": False, "pdf_status": "FAILED", "pdf_error_code": "ZOTERO_ATTACHMENT_WRITE_FAILED", "reused": False})
             continue
+        attachment = await _find_pdf_attachment(client, item_key)
+        pdf_status = "ATTACHED" if attachment else pdf_status_by_index.get(index, "NONE")
         item_results.append({
             "index": index,
             "title": paper.title,
             "doi": paper.doi,
             "item_key": item_key,
             "status": "ok",
-            "pdf_attached": bool(attached_by_index.get(index)),
-            "pdf_status": pdf_status_by_index.get(index, "unknown"),
+            "pdf_attached": pdf_status == "ATTACHED",
+            "pdf_status": pdf_status,
+            "pdf_source": attachment.source if attachment else None,
+            "zotero_attachment_key": attachment.key if attachment else None,
+            "pdf_error_code": None if attachment else _pdf_error_code_for_status(pdf_status),
+            "pdf_error_message": None if attachment else _pdf_message_for_status(pdf_status),
             "reused": index in reused_by_index,
             "created": index in created_by_index,
         })
@@ -395,25 +449,45 @@ async def _ensure_item_in_collection(
 
 
 async def _item_has_pdf_attachment(client: httpx.AsyncClient, item_key: str) -> bool:
+    return bool(await _find_pdf_attachment(client, item_key))
+
+
+async def _find_pdf_attachment(client: httpx.AsyncClient, item_key: str) -> ZoteroPdfAttachment | None:
     response = await client.get(f"{ZOTERO_BASE_URL}/users/0/items/{item_key}/children")
     response.raise_for_status()
     for child in response.json():
         data = child.get("data", child)
         if data.get("itemType") != "attachment":
             continue
-        if data.get("contentType") != "application/pdf":
-            filename = (data.get("filename") or data.get("title") or "").lower()
-            if not filename.endswith(".pdf"):
-                continue
+        if not _is_pdf_attachment(child):
+            continue
+        key = data.get("key") or child.get("key")
+        if key:
+            return ZoteroPdfAttachment(key=key, source=_attachment_source(data))
+    return None
 
-        link_mode = data.get("linkMode")
-        has_linked_path = link_mode == "linked_file" and bool(data.get("path"))
-        has_imported_file = link_mode in {"imported_file", "imported_url"} and (
-            bool(data.get("md5")) or bool(child.get("links", {}).get("enclosure", {}).get("href"))
-        )
-        if has_linked_path or has_imported_file:
-            return True
-    return False
+
+def _is_pdf_attachment(child: dict[str, Any]) -> bool:
+    data = child.get("data", child)
+    content_type = (data.get("contentType") or "").split(";", 1)[0].strip().lower()
+    filename = (data.get("filename") or data.get("title") or data.get("path") or "").lower()
+    if content_type != "application/pdf" and not filename.endswith(".pdf"):
+        return False
+    link_mode = data.get("linkMode")
+    has_linked_path = link_mode == "linked_file" and bool(data.get("path"))
+    has_imported_file = link_mode in {"imported_file", "imported_url"} and (
+        bool(data.get("md5")) or bool(child.get("links", {}).get("enclosure", {}).get("href")) or bool(data.get("filename"))
+    )
+    return has_linked_path or has_imported_file
+
+
+def _attachment_source(data: dict[str, Any]) -> str:
+    tags = {str(tag.get("tag", "")).upper() for tag in data.get("tags", []) if isinstance(tag, dict)}
+    if "LOCAL_FILE" in tags or "MANUAL" in tags:
+        return "LOCAL_FILE"
+    if data.get("url"):
+        return "ZOTERO_CONNECTOR"
+    return "ZOTERO"
 
 
 async def get_zotero_item_sync_state(item_key: str) -> dict[str, Any]:
@@ -424,6 +498,7 @@ async def get_zotero_item_sync_state(item_key: str) -> dict[str, Any]:
         response.raise_for_status()
         item_payload = response.json()
         data = item_payload.get("data", item_payload)
+        attachment = await _find_pdf_attachment(client, item_key)
         return {
             "item_key": item_key,
             "title": data.get("title"),
@@ -432,7 +507,8 @@ async def get_zotero_item_sync_state(item_key: str) -> dict[str, Any]:
             "abstract": data.get("abstractNote"),
             "year": _year_from_date(data.get("date")),
             "venue": data.get("publicationTitle") or data.get("conferenceName") or data.get("proceedingsTitle"),
-            "pdf_attached": await _item_has_pdf_attachment(client, item_key),
+            "pdf_attached": bool(attachment),
+            **_pdf_attachment_state(attachment),
         }
 
 
@@ -442,42 +518,47 @@ async def _attach_pdf_from_url(
     api_key: str,
     parent_key: str,
     paper: Paper,
-) -> tuple[bool, str]:
+) -> dict[str, str | None]:
     try:
         resolved = await _resolve_pdf_for_paper(client, paper)
-        if not resolved:
-            return False, "missing_pdf_url" if not _seed_pdf_candidates(paper) else "attach_failed"
-
-        content, content_type, pdf_url = resolved
-        filename = _pdf_filename(paper)
-        ok = await _attach_linked_pdf_bytes(
-            client=client,
-            server_id=server_id,
-            api_key=api_key,
-            parent_key=parent_key,
-            content=content,
-            content_type=content_type or "application/pdf",
-            filename=filename,
-            source_url=pdf_url,
-            source_label=paper.source_label or paper.venue,
-            tags=["PDF", "OpenAccess"] if paper.is_oa else ["PDF"],
-        )
-        return ok, "attached" if ok else "attach_failed"
+        if resolved.content:
+            filename = _pdf_filename(paper)
+            attachment_key = await _attach_pdf_bytes(
+                client=client,
+                server_id=server_id,
+                api_key=api_key,
+                parent_key=parent_key,
+                content=resolved.content,
+                content_type=resolved.content_type or "application/pdf",
+                filename=filename,
+                source_url=resolved.url,
+                tags=["PDF", resolved.source or "DIRECT_DOWNLOAD"],
+            )
+            if attachment_key:
+                return {"pdf_status": "ATTACHED", "pdf_source": resolved.source, "zotero_attachment_key": attachment_key}
+            return {"pdf_status": "FAILED", "pdf_error_code": "ZOTERO_ATTACHMENT_WRITE_FAILED", "pdf_error_message": "PDF downloaded but Zotero attachment write failed."}
+        return {"pdf_status": resolved.status, "pdf_source": resolved.source, "pdf_error_code": resolved.error_code, "pdf_error_message": resolved.error_message}
     except (KeyError, httpx.HTTPError):
-        return False, "attach_failed"
+        return {"pdf_status": "FAILED", "pdf_error_code": "NETWORK_ERROR", "pdf_error_message": "Network error while resolving PDF."}
 
 
-async def _resolve_pdf_for_paper(client: httpx.AsyncClient, paper: Paper) -> tuple[bytes, str, str] | None:
+async def _resolve_pdf_for_paper(client: httpx.AsyncClient, paper: Paper) -> PdfResolution:
     candidates = _seed_pdf_candidates(paper)
-    discovered_pages: set[str] = set()
+    if not candidates:
+        article_url = paper.url or _doi_url(paper.doi)
+        if article_url and _is_restricted_publisher_url(article_url):
+            return PdfResolution(status="BROWSER_REQUIRED", error_code="BROWSER_REQUIRED", error_message="Publisher page likely needs browser login, institutional access, or JavaScript.")
+        return PdfResolution(status="NONE", error_code="PDF_NOT_FOUND", error_message="No direct or open-access PDF URL is available.")
 
+    last_status = PdfResolution(status="FAILED", error_code="PDF_NOT_FOUND", error_message="No valid PDF response found.")
+    discovered_pages: set[str] = set()
     for candidate in list(candidates):
         pdf = await _download_pdf(client, candidate)
-        if pdf:
-            content, content_type = pdf
-            return content, content_type, candidate
+        if pdf.content:
+            return pdf
+        last_status = _prefer_actionable_resolution(last_status, pdf)
 
-        if candidate in discovered_pages:
+        if candidate in discovered_pages or not _may_discover_pdf_links(candidate, paper):
             continue
         discovered_pages.add(candidate)
         for discovered in await _discover_pdf_urls_from_page(client, candidate):
@@ -486,10 +567,10 @@ async def _resolve_pdf_for_paper(client: httpx.AsyncClient, paper: Paper) -> tup
 
     for candidate in candidates:
         pdf = await _download_pdf(client, candidate)
-        if pdf:
-            content, content_type = pdf
-            return content, content_type, candidate
-    return None
+        if pdf.content:
+            return pdf
+        last_status = _prefer_actionable_resolution(last_status, pdf)
+    return last_status
 
 
 def _seed_pdf_candidates(paper: Paper) -> list[str]:
@@ -623,10 +704,11 @@ async def attach_pdf_to_zotero(payload: ZoteroAttachPdfRequest) -> dict:
     async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
         server_id = await _get_server_id(client)
         api_key = await _ensure_api_key(client, server_id)
-        if await _item_has_pdf_attachment(client, payload.item_key):
-            return {"status": "skipped", "message": "该条目已有 PDF 附件，已跳过重复挂载。", "item_key": payload.item_key}
+        existing = await _find_pdf_attachment(client, payload.item_key)
+        if existing:
+            return {"status": "skipped", "message": "该条目已有 PDF 附件，已跳过重复挂载。", "item_key": payload.item_key, "attachment_key": existing.key, "pdf_source": existing.source}
         filename = payload.filename or "paper.pdf"
-        ok = await _attach_linked_pdf_bytes(
+        attachment_key = await _attach_pdf_bytes(
             client=client,
             server_id=server_id,
             api_key=api_key,
@@ -635,80 +717,12 @@ async def attach_pdf_to_zotero(payload: ZoteroAttachPdfRequest) -> dict:
             content_type=payload.content_type or "application/pdf",
             filename=filename,
             source_url=payload.pdf_url,
-            source_label="CARSI",
-            tags=["PDF", "CARSI"],
+            tags=["PDF", payload.source or "MANUAL"],
         )
-    if not ok:
+    if not attachment_key:
         raise RuntimeError("PDF 已捕获，但写入 Zotero 附件失败。")
-    return {"status": "ok", "message": "PDF 已挂载到 Zotero。", "item_key": payload.item_key}
+    return {"status": "ok", "message": "PDF 已挂载到 Zotero。", "item_key": payload.item_key, "attachment_key": attachment_key, "pdf_source": payload.source or "MANUAL"}
 
-
-async def _attach_linked_pdf_bytes(
-    client: httpx.AsyncClient,
-    server_id: str,
-    api_key: str,
-    parent_key: str,
-    content: bytes,
-    content_type: str,
-    filename: str,
-    source_url: str | None,
-    source_label: str | None,
-    tags: list[str],
-) -> bool:
-    try:
-        if await _item_has_pdf_attachment(client, parent_key):
-            return True
-        file_path = _save_pdf_file(content, source_label, filename)
-        if await _item_has_pdf_attachment(client, parent_key):
-            return True
-        attachment = {
-            "itemType": "attachment",
-            "parentItem": parent_key,
-            "linkMode": "linked_file",
-            "title": "Full Text PDF",
-            "contentType": content_type or "application/pdf",
-            "path": str(file_path),
-            "tags": [{"tag": tag} for tag in tags],
-            "relations": {},
-        }
-        response = await client.post(
-            f"{ZOTERO_BASE_URL}/users/0/items",
-            headers=_json_write_headers(server_id, api_key),
-            json=[attachment],
-        )
-        response.raise_for_status()
-        return bool(_first_successful_key(response.json()))
-    except (OSError, KeyError, httpx.HTTPError):
-        return False
-
-
-def _save_pdf_file(content: bytes, source_label: str | None, filename: str) -> Path:
-    source_dir = PDF_LIBRARY_DIR / _safe_path_part(source_label or "Unclassified")
-    source_dir.mkdir(parents=True, exist_ok=True)
-    clean_name = _safe_filename(filename)
-    file_path = source_dir / clean_name
-    if file_path.exists() and file_path.read_bytes() != content:
-        stem = file_path.stem
-        suffix = file_path.suffix or ".pdf"
-        digest = hashlib.sha1(content).hexdigest()[:8]
-        file_path = source_dir / f"{stem}_{digest}{suffix}"
-    file_path.write_bytes(content)
-    return file_path
-
-
-def _safe_path_part(value: str) -> str:
-    clean = re.sub(r"[^A-Za-z0-9._ -]+", "_", value).strip(" ._")
-    return clean or "Unclassified"
-
-
-def _safe_filename(value: str) -> str:
-    clean = re.sub(r"[^A-Za-z0-9._ -]+", "_", value).strip(" ._")
-    if not clean:
-        clean = "paper"
-    if clean.lower().endswith(".pdf"):
-        clean = clean[:-4]
-    clean = clean[:150].strip(" ._") or "paper"
-    return f"{clean}.pdf"
 
 
 async def _attach_pdf_bytes(
@@ -720,7 +734,8 @@ async def _attach_pdf_bytes(
     content_type: str,
     filename: str,
     source_url: str | None,
-) -> bool:
+    tags: list[str] | None = None,
+) -> str | None:
     try:
         md5 = hashlib.md5(content).hexdigest()
         mtime = int(time.time() * 1000)
@@ -732,7 +747,7 @@ async def _attach_pdf_bytes(
             "accessDate": _zotero_timestamp(),
             "url": source_url or "",
             "note": "",
-            "tags": [{"tag": "PDF"}, {"tag": "CARSI"}],
+            "tags": [{"tag": tag} for tag in (tags or ["PDF"])],
             "relations": {},
             "contentType": content_type or "application/pdf",
             "charset": "",
@@ -748,12 +763,13 @@ async def _attach_pdf_bytes(
         response.raise_for_status()
         attachment_key = _first_successful_key(response.json())
         if not attachment_key:
-            return False
-        return await _upload_file_to_attachment(
+            return None
+        ok = await _upload_file_to_attachment(
             client, server_id, api_key, attachment_key, content, content_type, filename, md5, mtime
         )
+        return attachment_key if ok else None
     except (KeyError, httpx.HTTPError):
-        return False
+        return None
 
 
 async def _upload_file_to_attachment(
@@ -817,24 +833,82 @@ def _pdf_request_headers(url: str) -> dict[str, str]:
     return headers
 
 
-async def _download_pdf(client: httpx.AsyncClient, url: str | None) -> tuple[bytes, str] | None:
+async def _download_pdf(client: httpx.AsyncClient, url: str | None) -> PdfResolution:
     if not url:
-        return None
+        return PdfResolution(status="NONE", error_code="PDF_NOT_FOUND", error_message="No PDF URL was provided.")
     try:
         response = await client.get(url, headers=_pdf_request_headers(url))
         response.raise_for_status()
     except httpx.HTTPError:
-        return None
+        code = "AUTH_REQUIRED" if _is_restricted_publisher_url(url) else "NETWORK_ERROR"
+        return PdfResolution(status=code, error_code=code, error_message="Could not fetch PDF URL automatically.")
 
     content = response.content
-    if not content or len(content) > MAX_PDF_BYTES:
-        return None
     content_type = response.headers.get("Content-Type", "").split(";")[0].strip().lower()
-    looks_like_pdf = content.startswith(b"%PDF") or content_type == "application/pdf"
-    if not looks_like_pdf:
-        return None
-    return content, content_type or "application/pdf"
+    if not content:
+        return PdfResolution(status="FAILED", error_code="INVALID_PDF_RESPONSE", error_message="Empty PDF response.")
+    if len(content) > MAX_PDF_BYTES:
+        return PdfResolution(status="FAILED", error_code="INVALID_PDF_RESPONSE", error_message="PDF response is larger than the supported limit.")
+    if content.startswith(b"%PDF-"):
+        source = "OPEN_ACCESS" if _is_public_repository_url(url) else "DIRECT_DOWNLOAD"
+        return PdfResolution(status="AVAILABLE", source=source, content=content, content_type="application/pdf", url=url)
+    if content_type == "application/pdf":
+        return PdfResolution(status="FAILED", error_code="INVALID_PDF_RESPONSE", error_message="Response claimed to be a PDF but did not contain a PDF header.")
+    text = content[:8000].decode("utf-8", errors="ignore").lower()
+    if content_type in {"text/html", "application/xhtml+xml"} or "<html" in text:
+        if _is_restricted_publisher_url(url) or any(hint in text for hint in HTML_AUTH_HINTS):
+            return PdfResolution(status="AUTH_REQUIRED", error_code="AUTH_REQUIRED", error_message="PDF requires browser login or institutional access.")
+        return PdfResolution(status="BROWSER_REQUIRED", error_code="BROWSER_REQUIRED", error_message="PDF URL returned an HTML page; use browser/Zotero Connector.")
+    return PdfResolution(status="FAILED", error_code="INVALID_PDF_RESPONSE", error_message="Response is not a valid PDF.")
 
+
+def _pdf_attachment_state(attachment: ZoteroPdfAttachment | None) -> dict[str, str | bool | None]:
+    if not attachment:
+        return {"pdf_status": "NONE", "pdf_source": None, "zotero_attachment_key": None}
+    return {"pdf_status": "ATTACHED", "pdf_source": attachment.source, "zotero_attachment_key": attachment.key}
+
+
+def _pdf_error_code_for_status(status: str | None) -> str | None:
+    mapping = {
+        "NONE": "PDF_NOT_FOUND",
+        "BROWSER_REQUIRED": "BROWSER_REQUIRED",
+        "AUTH_REQUIRED": "AUTH_REQUIRED",
+        "FAILED": "INVALID_PDF_RESPONSE",
+    }
+    return mapping.get(status or "")
+
+
+def _pdf_message_for_status(status: str | None) -> str | None:
+    if status in {"BROWSER_REQUIRED", "AUTH_REQUIRED"}:
+        return "PDF cannot be fetched automatically. Open the article in a browser and use Zotero Connector or attach a local PDF."
+    if status == "NONE":
+        return "No direct or open-access PDF was found."
+    if status == "FAILED":
+        return "Automatic PDF retrieval failed."
+    return None
+
+
+def _prefer_actionable_resolution(current: PdfResolution, incoming: PdfResolution) -> PdfResolution:
+    rank = {"AUTH_REQUIRED": 4, "BROWSER_REQUIRED": 3, "FAILED": 2, "NONE": 1}
+    return incoming if rank.get(incoming.status, 0) >= rank.get(current.status, 0) else current
+
+
+def _is_restricted_publisher_url(url: str | None) -> bool:
+    if not url:
+        return False
+    host = urlparse(url).netloc.lower()
+    return any(host == item or host.endswith(f".{item}") for item in RESTRICTED_PUBLISHER_HOSTS)
+
+
+def _is_public_repository_url(url: str | None) -> bool:
+    if not url:
+        return False
+    host = urlparse(url).netloc.lower()
+    return any(hint in host for hint in PUBLIC_REPOSITORY_HOST_HINTS)
+
+
+def _may_discover_pdf_links(url: str, paper: Paper) -> bool:
+    return not _is_restricted_publisher_url(url)
 
 def _paper_to_zotero_item(paper: Paper, collection_key: str) -> dict[str, Any]:
     item_type = "conferencePaper" if _looks_like_conference(paper.source_label, paper.venue) else "journalArticle"
