@@ -20,3 +20,6 @@ wandb/
 *.ckpt
 *.onnx
 
+
+# AI assistant session artifacts
+.zcode/

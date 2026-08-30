@@ -38,7 +38,7 @@ def translation_status() -> dict:
         configured = _is_real_value(settings.api_key) and _is_real_value(settings.model)
     elif settings.provider == "libretranslate":
         configured = _is_real_value(settings.api_base)
-    elif settings.provider in {"immersivel", "immersive-translate"}:
+    elif settings.provider in {"immersivel", "immersive", "immersive-translate"}:
         configured = _is_real_value(settings.api_base)
     return {
         "provider": settings.provider,
@@ -55,7 +55,7 @@ async def translate_papers(papers: list[Paper]) -> list[Paper]:
         return await _translate_with_openai_compatible(papers, settings)
     if settings.provider == "libretranslate":
         return await _translate_with_libretranslate(papers, settings)
-    if settings.provider in {"immersivel", "immersive-translate"}:
+    if settings.provider in {"immersivel", "immersive", "immersive-translate"}:
         return await _translate_with_immersivel(papers, settings)
     return papers
 

@@ -340,3 +340,56 @@ export type DashboardSummary = {
     message: string;
   }>;
 };
+
+export type GitChange = {
+  path: string;
+  status: string;
+};
+
+export type GitStatusInfo = {
+  is_repo: boolean;
+  branch?: string | null;
+  remote_url?: string | null;
+  changes: GitChange[];
+  modified: number;
+  untracked: number;
+  conflicts: number;
+  unpushed_commits: number;
+  last_commit?: string | null;
+  recent_commits: string[];
+};
+
+export type GitSecurityScan = {
+  ok?: boolean;
+  safe_files?: string[];
+  blocked_files?: string[];
+  large_files?: Array<{ path: string; size?: number }>;
+  secret_matches?: Array<{ path: string; reason?: string }>;
+};
+
+export type GitActionResult = {
+  ok?: boolean;
+  stderr?: string;
+  scan?: GitSecurityScan | null;
+};
+
+export type ProjectCheckpoint = {
+  id: number;
+  project_id: number;
+  name: string;
+  commit_hash: string;
+  experiment_id?: number | null;
+  tags?: string | null;
+};
+
+export type ProjectDetail = {
+  project: Project;
+  progress?: ProjectProgress;
+  git?: GitStatusInfo;
+  experiments?: Experiment[];
+  checkpoints?: ProjectCheckpoint[];
+};
+
+export type GitVersionDetail = GitCommit & {
+  diff?: string | null;
+};

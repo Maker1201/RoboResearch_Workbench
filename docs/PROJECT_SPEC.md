@@ -133,7 +133,7 @@ The existing plugin at `/home/robot/Zotero/学术论文检索助手浏览器插�
 
 ## 7. V1 Acceptance Criteria
 
-- Backend starts at `http://127.0.0.1:8765`.
+- Backend starts at `http://127.0.0.1:8770`.
 - Frontend starts through Vite and can call the backend.
 - Dashboard loads and saves layout.
 - Projects can register local paths and read Git status.

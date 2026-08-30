@@ -6,7 +6,7 @@ import re
 import time
 from dataclasses import dataclass
 from html.parser import HTMLParser
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import parse_qs, urlencode, urljoin, urlparse, urlunparse
 import httpx
 
@@ -26,6 +26,37 @@ BIBLIOGRAPHIC_ITEM_TYPES = {
 
 _zotero_key: str | None = None
 _zotero_server_id: str | None = None
+_key_loader: Callable[[], str | None] | None = None
+_key_saver: Callable[[str], None] | None = None
+
+
+def configure_key_store(loader: Callable[[], str | None], saver: Callable[[str], None]) -> None:
+    """让授权 key 可以在进程重启后从本地持久层恢复。"""
+    global _key_loader, _key_saver
+    _key_loader = loader
+    _key_saver = saver
+
+
+def _current_key() -> str | None:
+    global _zotero_key
+    if _zotero_key:
+        return _zotero_key
+    if _key_loader:
+        try:
+            stored = _key_loader()
+        except Exception:
+            stored = None
+        if stored:
+            _zotero_key = stored
+    return _zotero_key
+
+
+def _persist_key(key: str) -> None:
+    if _key_saver:
+        try:
+            _key_saver(key)
+        except Exception:
+            pass
 
 
 @dataclass
@@ -99,7 +130,7 @@ async def zotero_status() -> dict:
             "version": response.headers.get("X-Zotero-Version"),
             "api_version": response.headers.get("Zotero-API-Version"),
             "server_id": response.headers.get("Zotero-Server-ID"),
-            "authorized": bool(_zotero_key),
+            "authorized": bool(_current_key()),
         }
     except httpx.HTTPError as exc:
         return {"available": False, "authorized": False, "error": str(exc)}
@@ -188,9 +219,9 @@ async def _get_server_id(client: httpx.AsyncClient) -> str:
 
 
 async def _ensure_api_key(client: httpx.AsyncClient, server_id: str) -> str:
-    global _zotero_key
-    if _zotero_key:
-        return _zotero_key
+    stored = _current_key()
+    if stored:
+        return stored
 
     response = await client.post(
         f"{ZOTERO_BASE_URL}/local/authorize",
@@ -205,7 +236,9 @@ async def _ensure_api_key(client: httpx.AsyncClient, server_id: str) -> str:
     key = response.json().get("key")
     if not key:
         raise RuntimeError("Zotero 授权成功但没有返回 API Key。")
+    global _zotero_key
     _zotero_key = key
+    _persist_key(key)
     return key
 
 

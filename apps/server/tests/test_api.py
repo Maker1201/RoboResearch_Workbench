@@ -209,7 +209,7 @@ def test_attach_pdf_to_paper_updates_local_zotero_status(monkeypatch):
         assert payload.content_base64 == "JVBERi0xLjc="
         return {"status": "ok", "message": "PDF 已挂载到 Zotero。", "item_key": payload.item_key, "attachment_key": "ZATT123", "pdf_source": "LOCAL_FILE"}
 
-    monkeypatch.setattr("app.main.attach_pdf_to_zotero", fake_attach_pdf_to_zotero)
+    monkeypatch.setattr("app.routers.papers.attach_pdf_to_zotero", fake_attach_pdf_to_zotero)
 
     response = client.post(f"/papers/{paper['id']}/attach-pdf", json={
         "filename": "paper.pdf",
@@ -225,4 +225,61 @@ def test_attach_pdf_to_paper_updates_local_zotero_status(monkeypatch):
     assert data["pdf_source"] == "LOCAL_FILE"
     assert data["zotero_attachment_key"] == "ZATT123"
     assert data["zotero_synced_at"] is not None
+
+
+def test_settings_test_endpoint_paths_and_unknown():
+    ok = client.post("/api/settings/test/paths", json={"paths": {
+        "projects_root": tempfile.gettempdir(),
+        "knowledge_root": tempfile.gettempdir(),
+        "obsidian_vault": tempfile.gettempdir(),
+        "dataset_root": tempfile.gettempdir(),
+        "experiment_root": tempfile.gettempdir(),
+    }}).json()
+    assert ok["ok"] is True
+
+    missing = client.post("/api/settings/test/paths", json={"paths": {
+        "projects_root": tempfile.gettempdir(),
+        "dataset_root": "/nonexistent/workbench-path-xyz",
+    }}).json()
+    assert missing["ok"] is False
+    assert "dataset_root" in missing["message"]
+
+    assert client.post("/api/settings/test/unknown").status_code == 404
+
+
+def test_paper_knowledge_link_round_trip():
+    paper = client.post("/papers", json={
+        "title": "Knowledge Link Paper",
+        "authors": "A. Author",
+        "year": 2026,
+        "venue": "ICRA",
+        "status": "To Read",
+    }).json()
+    knowledge = client.post("/knowledge-links", json={
+        "title": "Policy Distillation",
+        "area": "Robot Learning",
+    }).json()
+
+    linked = client.put(f"/papers/{paper['id']}/knowledge-links/{knowledge['id']}")
+    assert linked.status_code == 200
+    detail = client.get(f"/papers/{paper['id']}/detail").json()
+    assert [item["id"] for item in detail["knowledge_links"]] == [knowledge["id"]]
+
+    unlinked = client.delete(f"/papers/{paper['id']}/knowledge-links/{knowledge['id']}")
+    assert unlinked.status_code == 200
+    detail_after = client.get(f"/papers/{paper['id']}/detail").json()
+    assert detail_after["knowledge_links"] == []
+
+
+def test_refresh_projects_git_returns_list():
+    project = client.post("/projects", json={
+        "name": "Refresh Git Project",
+        "path": tempfile.mkdtemp(),
+        "status": "active",
+    }).json()
+    response = client.post("/projects/refresh-git")
+    assert response.status_code == 200
+    projects = response.json()
+    assert any(item["id"] == project["id"] for item in projects)
+    assert all("health" in item for item in projects)
 

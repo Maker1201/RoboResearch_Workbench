@@ -1,4 +1,4 @@
-const API_CANDIDATES = ["http://127.0.0.1:8766", "http://localhost:8766", "http://127.0.0.1:8765", "http://localhost:8765"];
+const API_CANDIDATES = ["http://127.0.0.1:8770", "http://localhost:8770", "http://127.0.0.1:8766", "http://localhost:8766"];
 let activeApiBase = API_CANDIDATES[0];
 
 const defaultSources = [
@@ -100,7 +100,7 @@ async function checkApi() {
       // Try the next loopback hostname.
     }
   }
-  elements.apiStatus.textContent = "未连接后台，请启动 8765 服务并重新加载插件";
+  elements.apiStatus.textContent = "未连接后台，请启动 8770 服务并重新加载插件";
   elements.apiStatus.className = "warn";
   return false;
 }
@@ -145,7 +145,7 @@ async function search() {
   try {
     const apiReady = await checkApi();
     if (!apiReady) {
-      throw new Error("无法连接本地后台。确认终端里 Uvicorn 正在监听 http://127.0.0.1:8765，然后在 about:debugging 里重新加载插件。");
+      throw new Error("无法连接本地后台。确认终端里 Uvicorn 正在监听 http://127.0.0.1:8770，然后在 about:debugging 里重新加载插件。");
     }
 
     const response = await fetch(`${activeApiBase}/papers/search`, {

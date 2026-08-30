@@ -1,6 +1,6 @@
 import type { DashboardSummary, DirectoryListing, Experiment, FocusSession, GitCommit, KnowledgeLink, Paper, Project, ProjectProgress, ProjectProgressLog, ProjectScan, ReadingNote, SearchPaper, Summary, SystemSettings, Task } from "./types";
 
-export const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8765";
+export const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8770";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -26,7 +26,10 @@ export const api = {
     method: "PATCH",
     body: JSON.stringify(settings),
   }),
-  testSettings: (integration: string) => request<{ ok: boolean; message: string }>(`/api/settings/test/${integration}`, { method: "POST" }),
+  testSettings: (integration: string, draft?: Partial<SystemSettings>) => request<{ ok: boolean; message: string }>(`/api/settings/test/${integration}`, {
+    method: "POST",
+    body: JSON.stringify(draft ?? {}),
+  }),
   currentFocus: () => request<{ current_session: FocusSession | null }>("/api/focus/current"),
   startFocus: (payload: { task_id?: number | null; project_id?: number | null; paper_id?: number | null; reading_note_id?: number | null; focus_type?: string | null; context_type?: string | null; note?: string | null }) => request<FocusSession>("/api/focus/start", {
     method: "POST",
@@ -67,6 +70,7 @@ export const api = {
     method: "PATCH",
     body: JSON.stringify(project),
   }),
+  refreshProjectsGit: () => request<Project[]>("/projects/refresh-git", { method: "POST" }),
   projectDetail: (id: number) => request<any>(`/projects/${id}/detail`),
   projectProgress: (id: number) => request<ProjectProgress>(`/projects/${id}/progress`),
   initializeProjectProgress: (id: number) => request<any>(`/projects/${id}/progress/initialize`, { method: "POST" }),
@@ -212,5 +216,7 @@ export const api = {
     method: "POST",
     body: JSON.stringify(knowledge),
   }),
+  linkPaperKnowledge: (paperId: number, knowledgeId: number) => request<Paper>(`/papers/${paperId}/knowledge-links/${knowledgeId}`, { method: "PUT" }),
+  unlinkPaperKnowledge: (paperId: number, knowledgeId: number) => request<Paper>(`/papers/${paperId}/knowledge-links/${knowledgeId}`, { method: "DELETE" }),
 };
 

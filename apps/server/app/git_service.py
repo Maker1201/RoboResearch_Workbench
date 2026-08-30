@@ -84,7 +84,7 @@ def status(repo_path: str) -> dict:
         }
     branch = run_git(repo_path, ["branch", "--show-current"])
     remote = run_git(repo_path, ["remote", "get-url", "origin"])
-    porcelain = run_git(repo_path, ["status", "--short"])
+    porcelain = run_git(repo_path, ["status", "--short", "--untracked-files=all"])
     log = run_git(repo_path, ["log", "--oneline", "-8"])
     last = run_git(repo_path, ["log", "-1", "--pretty=format:%h %s"])
     current_branch = branch["stdout"] if branch["ok"] and branch["stdout"] else None
@@ -170,8 +170,20 @@ def is_blocked_file(file_path: str) -> bool:
 
 def list_candidate_files(repo_path: str) -> list[str]:
     if is_git_repo(repo_path):
-        result = run_git(repo_path, ["ls-files", "--modified", "--others", "--exclude-standard"], timeout=60)
-        return result["stdout"].splitlines() if result["ok"] and result["stdout"] else []
+        # 与 parse_status 同源（git status --porcelain），保证扫描结果里的路径
+        # 能和前端变更列表里的路径一一对应；--untracked-files=all 展开目录。
+        result = run_git(repo_path, ["status", "--porcelain", "--untracked-files=all"], timeout=60)
+        if not result["ok"]:
+            return []
+        files = []
+        for line in result["stdout"].splitlines():
+            if not line.strip():
+                continue
+            path = line[3:].strip()
+            if " -> " in path:
+                path = path.split(" -> ", 1)[1]
+            files.append(path.strip('"'))
+        return files
     root = Path(repo_path).expanduser().resolve()
     ignored_dirs = {".git", "node_modules", ".venv", "venv", "__pycache__", "dist", "build"}
     files = []

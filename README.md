@@ -21,7 +21,6 @@
 - 支持 Reading Note 模板
 - 支持实验记录：项目、配置、数据集、Git commit、指标、结果和结论
 - 支持保存 Obsidian 路径或 `obsidian://` 链接
-- Dashboard 支持拖拽调整 Widget 布局
 
 ## 项目目录
 
@@ -29,49 +28,73 @@
 /home/robot/RoboResearch_Workbench
 ├── apps
 │   ├── server              # FastAPI 后端
+│   │   └── app
+│   │       ├── main.py     # 应用入口：lifespan、CORS、注册路由
+│   │       ├── bootstrap.py # 建表、轻量迁移、种子数据、集成接线
+│   │       ├── routers     # 路由：system / settings / projects / git / tasks / papers / reading_notes / workspace
+│   │       ├── services    # 业务服务：settings / papers / projects / dashboard
+│   │       └── paper_integrations  # Zotero / OpenAlex / Crossref / 翻译
 │   └── web                 # React / Vite 前端
+│       └── src
+│           ├── App.tsx     # 根组件：状态、侧栏、模块切换
+│           ├── views       # 各模块页面（总览/项目/文献/设置等 10 个）
+│           ├── components  # 共享小组件
+│           ├── api.ts      # 后端 API 客户端
+│           ├── i18n.ts     # 中英双语字典
+│           ├── constants.ts / utils.ts / types.ts
+│           └── styles.css
 ├── extensions
 │   └── academic-paper-finder
 │       └── ...             # Firefox PDF/CARSI 捕获扩展
 ├── data                    # SQLite 数据库和 PDF linked files
 ├── docs
 │   └── PROJECT_SPEC.md     # 项目说明书
+├── start.sh                # 一键启动（后端 8770 + 前端 5176）
 └── README.md
 ```
 
 ## 快速启动
 
-### 1. 启动后端
+一键启动（推荐）：
+
+```bash
+cd /home/robot/RoboResearch_Workbench
+./start.sh
+```
+
+脚本会启动后端 `http://127.0.0.1:8770` 和前端 `http://127.0.0.1:5176`（端口被占用时自动顺延），并注入前端的后端地址。
+
+### 1. 手动启动后端
 
 ```bash
 cd /home/robot/RoboResearch_Workbench/apps/server
 . .venv/bin/activate
-uvicorn app.main:app --host 127.0.0.1 --port 8766 --reload
+uvicorn app.main:app --host 127.0.0.1 --port 8770 --reload
 ```
 
 后端地址：
 
 ```text
-http://127.0.0.1:8766
+http://127.0.0.1:8770
 ```
 
 健康检查：
 
 ```bash
-curl http://127.0.0.1:8766/health
+curl http://127.0.0.1:8770/health
 ```
 
-### 2. 启动前端
+### 2. 手动启动前端
 
 ```bash
 cd /home/robot/RoboResearch_Workbench/apps/web
-VITE_API_BASE=http://127.0.0.1:8766 npm run dev -- --host 127.0.0.1
+VITE_API_BASE=http://127.0.0.1:8770 npm run dev -- --host 127.0.0.1
 ```
 
 前端地址：
 
 ```text
-http://127.0.0.1:5173/
+http://127.0.0.1:5176/
 ```
 
 ## 首次安装依赖
@@ -126,7 +149,7 @@ npm install
 扩展会优先连接：
 
 ```text
-http://127.0.0.1:8766
+http://127.0.0.1:8770
 ```
 
 如果需要在 Firefox 中临时加载扩展，可以打开：
@@ -179,7 +202,7 @@ npm run build
 当前验证结果：
 
 ```text
-后端测试：5 passed
+后端测试：28 passed
 前端构建：成功
 ```
 
