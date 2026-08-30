@@ -5,10 +5,16 @@ from app.paper_integrations.zotero import PdfLinkParser, _known_pdf_url_variants
 
 
 class FakeResponse:
-    def __init__(self, content: bytes, content_type: str, url: str = "https://example.org/item"):
+    def __init__(self, content: bytes, content_type: str, url: str = "https://example.org/item", status_code: int = 200):
         self.content = content
         self.headers = {"Content-Type": content_type}
         self.url = url
+        self.status_code = status_code
+
+    def json(self):
+        import json as _json
+
+        return _json.loads(self.content.decode("utf-8"))
 
     @property
     def text(self) -> str:
@@ -23,8 +29,10 @@ class FakeClient:
         self.responses = responses
         self.requested: list[str] = []
 
-    async def get(self, url: str, headers: dict | None = None):
+    async def get(self, url: str, headers: dict | None = None, timeout: float | None = None):
         self.requested.append(url)
+        if url not in self.responses:
+            raise KeyError(url)
         return self.responses[url]
 
 
@@ -188,3 +196,84 @@ def test_restricted_publisher_without_oa_url_requires_browser():
 
     assert resolved.content is None
     assert resolved.status == "AUTH_REQUIRED"
+
+
+def _arxiv_query_url(title: str) -> str:
+    from urllib.parse import quote
+
+    from app.paper_integrations.open_access import ARXIV_API
+
+    return ARXIV_API.format(query=quote(f'ti:"{title}"'))
+
+
+def test_resolve_pdf_for_paper_falls_back_to_arxiv_title_match():
+    from app.paper_integrations.open_access import normalize_title
+
+    title = "Visuo Motor World Models for Robot Manipulation"
+    paper = Paper(
+        id="paper-oa-1",
+        title=title,
+        url="https://ieeexplore.ieee.org/document/7654321",
+        doi="10.1109/example.2024.9999999",
+        is_oa=False,
+    )
+    arxiv_entry = f'''<?xml version="1.0" encoding="UTF-8"?>
+    <feed xmlns="http://www.w3.org/2005/Atom">
+      <entry>
+        <title>  {title}
+        </title>
+        <id>http://arxiv.org/abs/2309.14236v2</id>
+      </entry>
+    </feed>'''
+    client = FakeClient({
+        "https://ieeexplore.ieee.org/document/7654321": FakeResponse(b"<html>Sign in</html>", "text/html"),
+        "https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=7654321": FakeResponse(b"<html>Sign in</html>", "text/html"),
+        "https://ieeexplore.ieee.org/stampPDF/getPDF.jsp?tp=&arnumber=7654321": FakeResponse(b"<html>Sign in</html>", "text/html"),
+        "https://ieeexplore.ieee.org/stampPDF/getPDF.jsp?tp=&arnumber=7654321&ref=": FakeResponse(b"<html>Sign in</html>", "text/html"),
+        "https://doi.org/10.1109/example.2024.9999999": FakeResponse(b"<html>Sign in</html>", "text/html"),
+        _arxiv_query_url(title): FakeResponse(arxiv_entry.encode("utf-8"), "application/atom+xml"),
+        "https://arxiv.org/pdf/2309.14236v2": FakeResponse(b"%PDF-1.7 arxiv preprint", "application/pdf"),
+    })
+
+    resolved = asyncio.run(_resolve_pdf_for_paper(client, paper))
+
+    assert resolved.content == b"%PDF-1.7 arxiv preprint"
+    assert resolved.source == "ARXIV"
+    assert "https://arxiv.org/pdf/2309.14236v2" in client.requested
+    assert normalize_title(title)  # sanity: helper import used
+
+
+def test_resolve_pdf_for_paper_reports_browser_required_when_no_open_access_exists():
+    title = "Paywalled Paper Without Any Preprint Version"
+    paper = Paper(
+        id="paper-oa-2",
+        title=title,
+        url="https://ieeexplore.ieee.org/document/2468135",
+        doi="10.1109/example.2025.1111111",
+        is_oa=False,
+    )
+    client = FakeClient({
+        "https://ieeexplore.ieee.org/document/2468135": FakeResponse(b"<html>Sign in</html>", "text/html"),
+        "https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=2468135": FakeResponse(b"<html>Sign in</html>", "text/html"),
+        "https://ieeexplore.ieee.org/stampPDF/getPDF.jsp?tp=&arnumber=2468135": FakeResponse(b"<html>Sign in</html>", "text/html"),
+        "https://ieeexplore.ieee.org/stampPDF/getPDF.jsp?tp=&arnumber=2468135&ref=": FakeResponse(b"<html>Sign in</html>", "text/html"),
+        "https://doi.org/10.1109/example.2025.1111111": FakeResponse(b"<html>Sign in</html>", "text/html"),
+    })
+
+    resolved = asyncio.run(_resolve_pdf_for_paper(client, paper))
+
+    assert resolved.content is None
+    assert resolved.status == "AUTH_REQUIRED"
+
+
+def test_session_cookie_is_injected_into_download_headers():
+    from app.paper_integrations import zotero as zotero_module
+
+    zotero_module.configure_cookie_store(lambda host: f"session-{host}" if host == "ieeexplore.ieee.org" else None, lambda: {}, lambda host, cookie: None, lambda host: None)
+    try:
+        headers = zotero_module._pdf_request_headers("https://ieeexplore.ieee.org/document/123")
+        assert headers["Cookie"] == "session-ieeexplore.ieee.org"
+        other = zotero_module._pdf_request_headers("https://arxiv.org/pdf/2309.14236")
+        assert "Cookie" not in other
+    finally:
+        zotero_module.configure_cookie_store(lambda host: None, lambda: {}, lambda host, cookie: None, lambda host: None)

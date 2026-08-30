@@ -155,6 +155,12 @@ export type SearchPaper = {
   is_oa: boolean;
   relevance: number;
   matched_keywords: string[];
+  in_library?: boolean | null;
+  library_paper_id?: number | null;
+  library_status?: string | null;
+  library_pdf_status?: string | null;
+  in_zotero?: boolean | null;
+  zotero_item_key?: string | null;
 };
 
 export type ReadingNote = {

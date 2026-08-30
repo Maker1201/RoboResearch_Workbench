@@ -180,12 +180,14 @@ export const api = {
   }),
   addExistingPaperToZotero: (id: number) => request<Paper>(`/papers/${id}/zotero`, { method: "POST" }),
   checkPaperZotero: (id: number) => request<Paper>(`/papers/${id}/zotero/check`, { method: "POST" }),
+  resolvePaperPdf: (id: number) => request<Paper>(`/papers/${id}/resolve-pdf`, { method: "POST" }),
   paperOpenLinks: (id: number) => request<{ article_url?: string | null; zotero_item_uri?: string | null; zotero_attachment_uri?: string | null }>(`/papers/${id}/open-links`),
   attachPaperPdf: (id: number, payload: { content_base64: string; filename?: string | null; content_type?: string | null; pdf_url?: string | null }) => request<Paper>(`/papers/${id}/attach-pdf`, {
     method: "POST",
     body: JSON.stringify(payload),
   }),
   syncZoteroPapers: () => request<{ status: string; synced: number; failed: Array<{ item_key: string; title: string; error: string }>; message: string }>("/zotero/sync", { method: "POST" }),
+  pullFromZotero: () => request<{ status: string; imported: number; updated: number; skipped: number; total: number; message: string }>("/zotero/pull", { method: "POST" }),
   paperDetail: (id: number) => request<any>(`/papers/${id}/detail`),
   searchPapers: (payload: any) => request<{ papers: SearchPaper[] }>("/papers/search", {
     method: "POST",

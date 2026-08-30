@@ -17,8 +17,8 @@ def init_database() -> None:
 
 
 def configure_integrations() -> None:
-    from .paper_integrations.zotero import configure_key_store
-    from .services.settings_service import put_secret, secret_value
+    from .paper_integrations.zotero import configure_cookie_store, configure_key_store
+    from .services.settings_service import delete_setting, put_secret, secret_value, all_settings_by_prefix
 
     def load_zotero_key() -> str | None:
         db = SessionLocal()
@@ -36,6 +36,40 @@ def configure_integrations() -> None:
             db.close()
 
     configure_key_store(load_zotero_key, save_zotero_key)
+
+    COOKIE_PREFIX = "session_cookies."
+
+    def load_cookie(host: str) -> str | None:
+        db = SessionLocal()
+        try:
+            return secret_value(db, f"{COOKIE_PREFIX}{host}") or None
+        finally:
+            db.close()
+
+    def load_all_cookies() -> dict[str, str]:
+        db = SessionLocal()
+        try:
+            return {key[len(COOKIE_PREFIX):]: value for key, value in all_settings_by_prefix(db, COOKIE_PREFIX).items()}
+        finally:
+            db.close()
+
+    def save_cookie(host: str, cookie: str) -> None:
+        db = SessionLocal()
+        try:
+            put_secret(db, f"{COOKIE_PREFIX}{host}", cookie)
+            db.commit()
+        finally:
+            db.close()
+
+    def delete_cookie(host: str) -> None:
+        db = SessionLocal()
+        try:
+            delete_setting(db, f"{COOKIE_PREFIX}{host}")
+            db.commit()
+        finally:
+            db.close()
+
+    configure_cookie_store(load_cookie, load_all_cookies, save_cookie, delete_cookie)
 
 
 def migrate_schema() -> None:

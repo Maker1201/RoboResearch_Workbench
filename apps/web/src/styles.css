@@ -2838,3 +2838,29 @@ pre {
     grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   }
 }
+
+/* 检索结果：本地状态标记 */
+.result-state-tags {
+  margin-top: 4px;
+}
+
+.state-badge {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.state-badge.in-library {
+  color: #0b7a5e;
+  background: rgba(35, 197, 146, .14);
+  border: 1px solid rgba(35, 197, 146, .35);
+  border-radius: 999px;
+  padding: 2px 10px;
+}
+
+.state-badge.in-zotero {
+  color: #8a4b0f;
+  background: rgba(217, 148, 31, .14);
+  border: 1px solid rgba(217, 148, 31, .35);
+  border-radius: 999px;
+  padding: 2px 10px;
+}

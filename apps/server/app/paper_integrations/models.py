@@ -37,6 +37,13 @@ class Paper(BaseModel):
     is_oa: bool = False
     relevance: float = 0.0
     matched_keywords: list[str] = Field(default_factory=list)
+    # /papers/search 时回填的本地状态标记：这篇论文是否已在工作台文献库 / Zotero 中。
+    in_library: bool | None = None
+    library_paper_id: int | None = None
+    library_status: str | None = None
+    library_pdf_status: str | None = None
+    in_zotero: bool | None = None
+    zotero_item_key: str | None = None
 
 
 class SearchResponse(BaseModel):

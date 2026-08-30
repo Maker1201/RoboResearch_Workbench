@@ -274,9 +274,23 @@ export function Papers({ t, papers, projects, notes, refresh, setMessage, setLoa
     try {
       const result = await api.syncZoteroPapers();
       await refresh();
-      setMessage(result.failed.length ? `${result.message} ${result.failed.length} 篇同步失败。` : result.message);
+      setMessage(result.message || `已同步 Zotero：${result.synced} 篇。`);
     } catch (error) {
-      setMessage(`Zotero 同步失败：${friendlyError(error)}`);
+      setMessage(`同步 Zotero 失败：${friendlyError(error)}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function pullZoteroLibrary() {
+    setLoading(true);
+    setMessage("正在从 Zotero 拉取文献库…");
+    try {
+      const result = await api.pullFromZotero();
+      await refresh();
+      setMessage(result.message);
+    } catch (error) {
+      setMessage(`从 Zotero 导入失败：${friendlyError(error)}`);
     } finally {
       setLoading(false);
     }
@@ -295,6 +309,68 @@ export function Papers({ t, papers, projects, notes, refresh, setMessage, setLoa
     } finally {
       setLoading(false);
     }
+  }
+
+  async function resolvePdfForPaper(paper: Paper) {
+    setLoading(true);
+    setMessage(`正在尝试自动下载 PDF：${paper.title.slice(0, 40)}…`);
+    try {
+      const saved = await api.resolvePaperPdf(paper.id);
+      setSelectedPaperId(saved.id);
+      await refresh();
+      if (saved.pdf_status === "ATTACHED") {
+        setMessage(`PDF 已自动下载并挂载到 Zotero（来源：${pdfSourceLabel(saved.pdf_source)}）。`);
+      } else if (saved.pdf_error_code === "AUTH_REQUIRED" || saved.pdf_error_code === "BROWSER_REQUIRED") {
+        setMessage("自动下载需要机构访问权限，正在弹出认证/抓取窗口…");
+        await browserAuthAndCapture(saved);
+      } else {
+        setMessage("未能自动获取 PDF，可稍后重试或手动挂载。");
+      }
+    } catch (error) {
+      setMessage(`自动下载 PDF 失败：${friendlyError(error)}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function paperTask(paper: Paper) {
+    return {
+      item_key: paper.zotero_item_key || paper.zotero_key || `paper-${paper.id}`,
+      title: paper.title,
+      doi: paper.doi || undefined,
+      pdf_url: paper.pdf_url || undefined,
+      url: paperArticleUrl(paper) || undefined,
+    };
+  }
+
+  // 通过扩展桥接弹出认证/抓取窗口：用户在出版商页面完成学校认证（CARSI）后自动抓取 PDF。
+  // 扩展未安装时回退为直接打开文章页。
+  function startBrowserCapture(paper: Paper) {
+    const task = paperTask(paper);
+    return new Promise<boolean>((resolve) => {
+      const timer = window.setTimeout(() => {
+        window.removeEventListener("message", onAck);
+        window.open(task.url || (task.doi ? `https://doi.org/${task.doi}` : ""), "_blank");
+        resolve(false);
+      }, 500);
+      function onAck(event: MessageEvent) {
+        if (event.source !== window || event.data?.type !== "RRW_CAPTURE_ACK") return;
+        window.clearTimeout(timer);
+        window.removeEventListener("message", onAck);
+        resolve(Boolean(event.data.accepted));
+      }
+      window.addEventListener("message", onAck);
+      window.postMessage({ type: "RRW_START_CAPTURE", task }, "*");
+    });
+  }
+
+  async function browserAuthAndCapture(paper: Paper) {
+    const accepted = await startBrowserCapture(paper);
+    setMessage(
+      accepted
+        ? `已弹出认证/抓取窗口：${paper.title.slice(0, 36)}…。请在页面中完成学校认证（CARSI）登录，登录成功后 PDF 会自动抓取并挂载到 Zotero。`
+        : "已在浏览器打开文章页。未检测到工作台扩展（请在 about:debugging 重新载入扩展），可手动保存 PDF 后用“选择本地 PDF”挂载。",
+    );
   }
 
   function paperArticleUrl(paper: Paper) {
@@ -318,12 +394,20 @@ export function Papers({ t, papers, projects, notes, refresh, setMessage, setLoa
   function renderPdfAssist(paper: Paper) {
     if (!pdfNeedsAssistance(paper)) return null;
     const articleUrl = paperArticleUrl(paper);
+    const linkedToZotero = Boolean(paper.zotero_item_key || paper.zotero_key);
+    const needsInstitution = paper.pdf_error_code === "AUTH_REQUIRED" || paper.pdf_error_code === "BROWSER_REQUIRED";
     return <div className="pdf-assist-box">
       <strong>{pdfAssistTitle(paper)}</strong>
-      <span>{paper.pdf_error_message || "PDF 无法自动获取。该出版社可能需要浏览器登录状态、机构权限或 Zotero Connector。"}</span>
+      <span>
+        {needsInstitution
+          ? "该论文需要机构访问权限。可先在浏览器通过学校认证（CARSI）登录出版商网站——装了工作台扩展时登录会话会自动同步，然后点“自动重试下载”；或打开文章页用 Zotero Connector / 扩展抓取。"
+          : paper.pdf_error_message || "PDF 无法自动获取。该出版社可能需要浏览器登录状态、机构权限或 Zotero Connector。"}
+      </span>
       <div className="toolbar pdf-assist-actions">
+        {linkedToZotero && <button onClick={() => void resolvePdfForPaper(paper)}><RefreshCw size={16} />自动重试下载</button>}
+        {needsInstitution && linkedToZotero && <button className="primary" onClick={() => void browserAuthAndCapture(paper)}><Link size={16} />浏览器认证并抓取</button>}
         {articleUrl && <a href={articleUrl} target="_blank"><Link size={16} />在浏览器打开</a>}
-        <button onClick={() => void checkZoteroForPaper(paper)}><RefreshCw size={16} />从 Zotero 检查 PDF</button>
+        {linkedToZotero && <button onClick={() => void checkZoteroForPaper(paper)}><RefreshCw size={16} />从 Zotero 检查 PDF</button>}
         <label className="file-action-button"><UploadCloud size={16} />选择本地 PDF<input type="file" accept="application/pdf,.pdf" onChange={(event) => void attachPdfFile(paper, event.currentTarget.files?.[0] || null)} /></label>
       </div>
     </div>;
@@ -372,6 +456,10 @@ export function Papers({ t, papers, projects, notes, refresh, setMessage, setLoa
                 <h3>{paper.title}</h3>
                 {paper.translated_title && <p className="muted">{paper.translated_title}</p>}
                 <p className="paper-authors">{paper.authors.slice(0, 8).join(", ")}</p>
+                {(paper.in_library || paper.in_zotero) && <div className="tag-cloud result-state-tags">
+                  {paper.in_library && <span className="state-badge in-library">已在文献库{paper.library_status ? ` · ${paperStatusLabel(paper.library_status)}` : ""}{paper.library_pdf_status === "ATTACHED" ? " · PDF ✓" : ""}</span>}
+                  {paper.in_zotero && <span className="state-badge in-zotero">已在 Zotero</span>}
+                </div>}
               </div>
               {paper.abstract && <p className="abstract-snippet">{paper.abstract.slice(0, 360)}</p>}
               <div className="tag-cloud result-tags">{paper.matched_keywords.map((tag) => <span key={tag}>{tag}</span>)}{paper.pdf_url && <span>PDF</span>}</div>
@@ -393,7 +481,7 @@ export function Papers({ t, papers, projects, notes, refresh, setMessage, setLoa
       {section === "Candidates" && <div className="paper-grid">{candidates.map((paper) => renderPaperRow(paper, <><button onClick={() => void updatePaperStatus(paper, "Dropped")}><X size={16} />移除</button><button onClick={() => void api.addExistingPaperToZotero(paper.id).then((saved) => { setSelectedPaperId(saved.id); setMessage("已添加到 Zotero 和文献库。"); return refresh(); })}><Send size={16} />Zotero / 文献库</button><button onClick={() => void queuePaper(paper)}><Clock3 size={16} />加入队列</button></>))}</div>}
 
       {section === "Library" && <div className="literature-grid">
-        <div className="panel compact-filter-panel"><div className="panel-heading compact-heading"><h2>{t.saved}</h2><button onClick={() => void syncZotero()}><RefreshCw size={16} />同步 Zotero</button></div><div className="tabs">{["", ...venues].map((item) => <button key={item || "all"} className={venue === item ? "active-pill" : ""} onClick={() => setVenue(item)}>{item || t.all}</button>)}</div><div className="tabs">{["", ...topicFilters].map((item) => <button key={item || "all-topics"} className={topic === item ? "active-pill" : ""} onClick={() => setTopic(item)}>{item || "全部主题"}</button>)}</div></div>
+        <div className="panel compact-filter-panel"><div className="panel-heading compact-heading"><h2>{t.saved}</h2><div className="toolbar"><button onClick={() => void pullZoteroLibrary()}><RefreshCw size={16} />从 Zotero 导入</button><button onClick={() => void syncZotero()}><RefreshCw size={16} />同步 Zotero</button></div></div><div className="tabs">{["", ...venues].map((item) => <button key={item || "all"} className={venue === item ? "active-pill" : ""} onClick={() => setVenue(item)}>{item || t.all}</button>)}</div><div className="tabs">{["", ...topicFilters].map((item) => <button key={item || "all-topics"} className={topic === item ? "active-pill" : ""} onClick={() => setTopic(item)}>{item || "全部主题"}</button>)}</div></div>
         <div className="paper-grid literature-library-grid">{filteredLibrary.map((paper) => renderPaperRow(paper, <><button onClick={() => void queuePaper(paper)}><Clock3 size={16} />加入队列</button><button onClick={() => void createNote(paper)}><NotebookPen size={16} />笔记</button>{(paper.zotero_item_key || paper.zotero_key) && <button onClick={() => void checkZoteroForPaper(paper)}><RefreshCw size={16} />Check Zotero</button>}{zoteroItemUri(paper) && <a href={zoteroItemUri(paper)!}><BookOpen size={16} />Open in Zotero</a>}{zoteroAttachmentUri(paper) && <a href={zoteroAttachmentUri(paper)!}><Eye size={16} />Open PDF</a>}{!paper.zotero_pdf_attached && (paper.zotero_item_key || paper.zotero_key) && <label className="file-action-button"><UploadCloud size={16} />Attach Local PDF<input type="file" accept="application/pdf,.pdf" onChange={(event) => void attachPdfFile(paper, event.currentTarget.files?.[0] || null)} /></label>}{paperArticleUrl(paper) && <a href={paperArticleUrl(paper)!} target="_blank"><Link size={16} />Open Article in Browser</a>}</>, "library-row-card"))}</div>
       </div>}
 

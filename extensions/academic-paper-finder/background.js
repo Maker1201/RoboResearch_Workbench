@@ -3,7 +3,7 @@ const awaitingChildByTab = new Map();
 const PDF_FETCH_RETRY_DELAYS = [0, 1200, 3000, 6000];
 const MAX_CAPTURE_TABS = 1;
 const CAPTURE_OPEN_DELAY_MS = 1200;
-const CAPTURE_TAB_TIMEOUT_MS = 90000;
+const CAPTURE_TAB_TIMEOUT_MS = 180000;
 
 const captureQueue = [];
 const captureTimeouts = new Map();
@@ -11,6 +11,36 @@ const attachingItemKeys = new Set();
 const completedItemKeys = new Set();
 let activeCaptureCount = 0;
 let queueRunning = false;
+
+const API_CANDIDATES = ["http://127.0.0.1:8770", "http://localhost:8770", "http://127.0.0.1:8766", "http://localhost:8766"];
+const PUBLISHER_COOKIE_HOSTS = [
+  "ieeexplore.ieee.org",
+  "www.sciencedirect.com",
+  "link.springer.com",
+  "dl.acm.org",
+  "www.science.org",
+];
+let cachedApiBase = null;
+
+async function findApiBase() {
+  if (cachedApiBase) {
+    try {
+      const probe = await fetch(`${cachedApiBase}/health`, { cache: "no-store" });
+      if (probe.ok) return cachedApiBase;
+    } catch {}
+    cachedApiBase = null;
+  }
+  for (const baseUrl of API_CANDIDATES) {
+    try {
+      const probe = await fetch(`${baseUrl}/health`, { cache: "no-store" });
+      if (probe.ok) {
+        cachedApiBase = baseUrl;
+        return baseUrl;
+      }
+    } catch {}
+  }
+  return null;
+}
 
 browser.runtime.onMessage.addListener(async (message, sender) => {
   if (message?.type === "OPEN_URL" && message.url) {
@@ -21,6 +51,24 @@ browser.runtime.onMessage.addListener(async (message, sender) => {
   if (message?.type === "START_CARSI_PDF_CAPTURE") {
     await startCaptureQueue(message.pendingPdfs || [], message.apiBase);
     return;
+  }
+
+  if (message?.type === "RRW_START_CAPTURE") {
+    const apiBase = message.apiBase || (await findApiBase());
+    if (!apiBase) {
+      return { accepted: false, reason: "backend-unreachable" };
+    }
+    const task = message.task;
+    if (!task?.item_key || !targetUrlFor(task)) {
+      return { accepted: false, reason: "invalid-task" };
+    }
+    completedItemKeys.delete(task.item_key);
+    await startCaptureQueue([task], apiBase);
+    return { accepted: true };
+  }
+
+  if (message?.type === "SYNC_PUBLISHER_COOKIES") {
+    return await syncAllPublisherCookies();
   }
 
   if (message?.type === "PDF_CANDIDATE_FOUND" && message.task && message.pdfUrl) {
@@ -51,6 +99,8 @@ browser.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (changeInfo.status !== "complete") return;
   const task = pendingByTab.get(tabId);
   if (!task || !tab.url) return;
+  // 用户可能正在完成 CARSI 登录：每次页面加载都重置抓取超时，避免登录中途被取消。
+  scheduleCaptureTimeout(tabId, task);
 
   const derivedPdfUrl = derivePdfUrlFromPageUrl(tab.url);
   if (derivedPdfUrl && !sameUrl(derivedPdfUrl, tab.url)) {
@@ -132,8 +182,11 @@ function scheduleCaptureTimeout(tabId, task) {
   clearCaptureTimeout(tabId);
   const timeoutId = setTimeout(async () => {
     if (!pendingByTab.has(tabId)) return;
-    await notify(`${task.title || "当前论文"} 获取超时：90 秒内没有捕获到 PDF，已跳过并继续下一篇。`);
-    await failCapturedTab(tabId, task);
+    await notify(`${task.title || "当前论文"} 自动抓取超时：可能是登录或跳转耗时较长。页面已保留，你可以手动保存，或重新在工作台点击抓取。`);
+    // 超时只解除跟踪，不关闭用户可能正在登录的页面。
+    pendingByTab.delete(tabId);
+    captureTimeouts.delete(tabId);
+    finishQueuedTask(task, false, true);
   }, CAPTURE_TAB_TIMEOUT_MS);
   captureTimeouts.set(tabId, timeoutId);
 }
@@ -352,3 +405,64 @@ async function notify(message) {
     console.info(message);
   }
 }
+
+async function collectCookieHeader(domain) {
+  try {
+    const cookies = await browser.cookies.getAll({ domain });
+    if (!cookies.length) return null;
+    return cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
+  } catch {
+    return null;
+  }
+}
+
+async function pushSessionCookie(host, apiBase) {
+  const cookie = await collectCookieHeader(host);
+  if (!cookie) return null;
+  const storageKey = `sessionCookie:${host}`;
+  const previous = (await browser.storage.local.get(storageKey))[storageKey];
+  if (previous !== cookie) {
+    const response = await fetch(`${apiBase}/papers/session-cookies`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ host, cookie })
+    });
+    if (!response.ok) return null;
+    await browser.storage.local.set({ [storageKey]: cookie });
+  }
+  return host;
+}
+
+async function syncAllPublisherCookies() {
+  const apiBase = await findApiBase();
+  if (!apiBase) return { synced: [], error: "backend-unreachable" };
+  const synced = [];
+  for (const host of PUBLISHER_COOKIE_HOSTS) {
+    try {
+      const result = await pushSessionCookie(host, apiBase);
+      if (result) synced.push(host);
+    } catch {}
+  }
+  return { synced };
+}
+
+async function maybeAutoPushCookies(url) {
+  let host;
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    return;
+  }
+  if (!PUBLISHER_COOKIE_HOSTS.includes(host)) return;
+  const apiBase = await findApiBase();
+  if (!apiBase) return;
+  try {
+    await pushSessionCookie(host, apiBase);
+  } catch {}
+}
+
+// 用户带着机构登录态访问出版商站点时，自动把会话同步给工作台，供服务器端下载使用。
+browser.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  if (changeInfo.status !== "complete" || !tab.url) return;
+  await maybeAutoPushCookies(tab.url);
+});

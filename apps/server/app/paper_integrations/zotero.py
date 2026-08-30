@@ -11,6 +11,7 @@ from urllib.parse import parse_qs, urlencode, urljoin, urlparse, urlunparse
 import httpx
 
 from .models import Paper, ZoteroAttachPdfRequest, ZoteroImportRequest
+from .open_access import find_open_access_pdfs
 
 ZOTERO_BASE_URL = "http://127.0.0.1:23119/api"
 ZOTERO_APP_NAME = "Academic Paper Finder"
@@ -57,6 +58,76 @@ def _persist_key(key: str) -> None:
             _key_saver(key)
         except Exception:
             pass
+
+
+_cookie_loader: Callable[[str], str | None] | None = None
+_cookie_all_loader: Callable[[], dict[str, str]] | None = None
+_cookie_saver: Callable[[str, str], None] | None = None
+_cookie_deleter: Callable[[str], None] | None = None
+_cookie_cache: dict[str, str] = {}
+
+
+def configure_cookie_store(
+    loader: Callable[[str], str | None],
+    all_loader: Callable[[], dict[str, str]],
+    saver: Callable[[str, str], None],
+    deleter: Callable[[str], None],
+) -> None:
+    """注入浏览器机构会话（CARSI 等）Cookie 的持久化读写函数，键为小写 host。"""
+    global _cookie_loader, _cookie_all_loader, _cookie_saver, _cookie_deleter
+    _cookie_loader = loader
+    _cookie_all_loader = all_loader
+    _cookie_saver = saver
+    _cookie_deleter = deleter
+    try:
+        _cookie_cache.clear()
+        _cookie_cache.update(all_loader() or {})
+    except Exception:
+        pass
+
+
+def save_session_cookie(host: str, cookie: str) -> None:
+    host = host.strip().lower()
+    _cookie_cache[host] = cookie
+    if _cookie_saver:
+        try:
+            _cookie_saver(host, cookie)
+        except Exception:
+            pass
+
+
+def clear_session_cookie(host: str) -> None:
+    host = host.strip().lower()
+    _cookie_cache.pop(host, None)
+    if _cookie_deleter:
+        try:
+            _cookie_deleter(host)
+        except Exception:
+            pass
+
+
+def session_cookie_hosts() -> dict[str, str]:
+    return dict(_cookie_cache)
+
+
+def session_cookie_for_url(url: str) -> str | None:
+    try:
+        host = urlparse(url).netloc.lower()
+    except ValueError:
+        return None
+    if not host:
+        return None
+    if host in _cookie_cache:
+        return _cookie_cache[host] or None
+    if _cookie_loader:
+        try:
+            value = _cookie_loader(host)
+        except Exception:
+            value = None
+        if value:
+            _cookie_cache[host] = value
+        return value or None
+    return None
 
 
 @dataclass
@@ -410,6 +481,79 @@ async def _create_items(
     )
 
 
+async def build_existing_item_index(client: httpx.AsyncClient) -> dict[str, str]:
+    return await _build_existing_item_index(client)
+
+
+async def list_zotero_library(client: httpx.AsyncClient) -> list[dict[str, Any]]:
+    """拉取 Zotero 本地库的全部文献条目，并标记每篇是否有 PDF 子附件。"""
+    parent_items: list[dict[str, Any]] = []
+    start = 0
+    while True:
+        response = await client.get(
+            f"{ZOTERO_BASE_URL}/users/0/items/top",
+            params={"limit": 100, "start": start, "itemType": "-attachment"},
+        )
+        response.raise_for_status()
+        items = response.json()
+        if not items:
+            break
+        parent_items.extend(items)
+        if len(items) < 100:
+            break
+        start += 100
+
+    attachment_pdf: dict[str, dict[str, Any]] = {}
+    start = 0
+    while True:
+        response = await client.get(
+            f"{ZOTERO_BASE_URL}/users/0/items",
+            params={"limit": 100, "start": start, "itemType": "attachment"},
+        )
+        response.raise_for_status()
+        attachments = response.json()
+        if not attachments:
+            break
+        for attachment in attachments:
+            data = attachment.get("data", attachment)
+            parent = data.get("parentItem")
+            if not parent or parent in attachment_pdf:
+                continue
+            content_type = (data.get("contentType") or "").lower()
+            filename = (data.get("filename") or data.get("title") or "").lower()
+            if "pdf" in content_type or filename.endswith(".pdf"):
+                attachment_pdf[parent] = {
+                    "attachment_key": data.get("key") or attachment.get("key"),
+                    "source": _attachment_source(data),
+                }
+        if len(attachments) < 100:
+            break
+        start += 100
+
+    library: list[dict[str, Any]] = []
+    for item in parent_items:
+        data = item.get("data", item)
+        key = data.get("key") or item.get("key")
+        if not key or data.get("itemType") not in BIBLIOGRAPHIC_ITEM_TYPES:
+            continue
+        pdf = attachment_pdf.get(key)
+        library.append({
+            "item_key": key,
+            "item_type": data.get("itemType"),
+            "title": data.get("title"),
+            "doi": data.get("DOI"),
+            "date": data.get("date"),
+            "year": _year_from_date(data.get("date")),
+            "venue": data.get("publicationTitle") or data.get("proceedingsTitle") or "",
+            "abstract": data.get("abstractNote"),
+            "url": data.get("url"),
+            "pdf_attached": pdf is not None,
+            "attachment_key": pdf.get("attachment_key") if pdf else None,
+            "pdf_source": pdf.get("source") if pdf else None,
+        })
+    return library
+
+
 async def _build_existing_item_index(client: httpx.AsyncClient) -> dict[str, str]:
     index: dict[str, str] = {}
     start = 0
@@ -568,7 +712,7 @@ async def _attach_pdf_from_url(
                 tags=["PDF", resolved.source or "DIRECT_DOWNLOAD"],
             )
             if attachment_key:
-                return {"pdf_status": "ATTACHED", "pdf_source": resolved.source, "zotero_attachment_key": attachment_key}
+                return {"pdf_status": "ATTACHED", "pdf_source": resolved.source, "zotero_attachment_key": attachment_key, "pdf_url": resolved.url}
             return {"pdf_status": "FAILED", "pdf_error_code": "ZOTERO_ATTACHMENT_WRITE_FAILED", "pdf_error_message": "PDF downloaded but Zotero attachment write failed."}
         return {"pdf_status": resolved.status, "pdf_source": resolved.source, "pdf_error_code": resolved.error_code, "pdf_error_message": resolved.error_message}
     except (KeyError, httpx.HTTPError):
@@ -577,12 +721,6 @@ async def _attach_pdf_from_url(
 
 async def _resolve_pdf_for_paper(client: httpx.AsyncClient, paper: Paper) -> PdfResolution:
     candidates = _seed_pdf_candidates(paper)
-    if not candidates:
-        article_url = paper.url or _doi_url(paper.doi)
-        if article_url and _is_restricted_publisher_url(article_url):
-            return PdfResolution(status="BROWSER_REQUIRED", error_code="BROWSER_REQUIRED", error_message="Publisher page likely needs browser login, institutional access, or JavaScript.")
-        return PdfResolution(status="NONE", error_code="PDF_NOT_FOUND", error_message="No direct or open-access PDF URL is available.")
-
     last_status = PdfResolution(status="FAILED", error_code="PDF_NOT_FOUND", error_message="No valid PDF response found.")
     discovered_pages: set[str] = set()
     for candidate in list(candidates):
@@ -603,6 +741,24 @@ async def _resolve_pdf_for_paper(client: httpx.AsyncClient, paper: Paper) -> Pdf
         if pdf.content:
             return pdf
         last_status = _prefer_actionable_resolution(last_status, pdf)
+
+    # 付费墙直连失败后，尝试开放获取渠道（arXiv 预印本 / OpenAlex / Semantic Scholar）。
+    try:
+        fallbacks = await find_open_access_pdfs(client, doi=paper.doi, title=paper.title)
+    except httpx.HTTPError:
+        fallbacks = []
+    for candidate in fallbacks:
+        if candidate.url in candidates:
+            continue
+        pdf = await _download_pdf(client, candidate.url, source_hint=candidate.source)
+        if pdf.content:
+            return pdf
+        last_status = _prefer_actionable_resolution(last_status, pdf)
+
+    if last_status.error_code in {"PDF_NOT_FOUND", "NETWORK_ERROR", "INVALID_PDF_RESPONSE"}:
+        article_url = paper.url or _doi_url(paper.doi)
+        if article_url and _is_restricted_publisher_url(article_url):
+            return PdfResolution(status="BROWSER_REQUIRED", error_code="BROWSER_REQUIRED", error_message="Publisher page likely needs browser login, institutional access, or JavaScript.")
     return last_status
 
 
@@ -757,6 +913,31 @@ async def attach_pdf_to_zotero(payload: ZoteroAttachPdfRequest) -> dict:
     return {"status": "ok", "message": "PDF 已挂载到 Zotero。", "item_key": payload.item_key, "attachment_key": attachment_key, "pdf_source": payload.source or "MANUAL"}
 
 
+async def auto_attach_pdf(item_key: str, paper: Paper) -> dict:
+    """为已有 Zotero 条目自动解析并挂载 PDF（含开放获取兜底与机构会话 Cookie）。"""
+    async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
+        server_id = await _get_server_id(client)
+        api_key = await _ensure_api_key(client, server_id)
+        existing = await _find_pdf_attachment(client, item_key)
+        if existing:
+            return {
+                "status": "skipped",
+                "message": "该条目已有 PDF 附件，已跳过重复下载。",
+                "item_key": item_key,
+                "attachment_key": existing.key,
+                "pdf_source": existing.source,
+            }
+        result = await _attach_pdf_from_url(client, server_id, api_key, item_key, paper)
+    if result.get("pdf_status") == "ATTACHED":
+        return {"status": "ok", "message": "PDF 已自动下载并挂载到 Zotero。", "item_key": item_key, **result}
+    message = {
+        "BROWSER_REQUIRED": "出版商页面需要浏览器登录或机构访问（CARSI）。请先在浏览器打开文章完成学校认证，再用浏览器抓取。",
+        "AUTH_REQUIRED": "PDF 需要机构访问权限。请先在浏览器完成 CARSI/学校登录（扩展会自动同步会话），然后重试。",
+        "NETWORK_ERROR": "下载时出现网络错误，请稍后重试。",
+    }.get(result.get("pdf_error_code") or "", "未能自动获取 PDF。")
+    return {"status": "failed", "message": message, "item_key": item_key, **result}
+
+
 
 async def _attach_pdf_bytes(
     client: httpx.AsyncClient,
@@ -863,10 +1044,13 @@ def _pdf_request_headers(url: str) -> dict[str, str]:
             article_number = match.group(1) if match else None
         if article_number:
             headers["Referer"] = f"https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber={article_number}"
+    cookie = session_cookie_for_url(url)
+    if cookie:
+        headers["Cookie"] = cookie
     return headers
 
 
-async def _download_pdf(client: httpx.AsyncClient, url: str | None) -> PdfResolution:
+async def _download_pdf(client: httpx.AsyncClient, url: str | None, source_hint: str | None = None) -> PdfResolution:
     if not url:
         return PdfResolution(status="NONE", error_code="PDF_NOT_FOUND", error_message="No PDF URL was provided.")
     try:
@@ -883,7 +1067,7 @@ async def _download_pdf(client: httpx.AsyncClient, url: str | None) -> PdfResolu
     if len(content) > MAX_PDF_BYTES:
         return PdfResolution(status="FAILED", error_code="INVALID_PDF_RESPONSE", error_message="PDF response is larger than the supported limit.")
     if content.startswith(b"%PDF-"):
-        source = "OPEN_ACCESS" if _is_public_repository_url(url) else "DIRECT_DOWNLOAD"
+        source = source_hint or ("OPEN_ACCESS" if _is_public_repository_url(url) else "DIRECT_DOWNLOAD")
         return PdfResolution(status="AVAILABLE", source=source, content=content, content_type="application/pdf", url=url)
     if content_type == "application/pdf":
         return PdfResolution(status="FAILED", error_code="INVALID_PDF_RESPONSE", error_message="Response claimed to be a PDF but did not contain a PDF header.")

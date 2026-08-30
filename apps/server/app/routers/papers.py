@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
@@ -20,8 +22,11 @@ from ..paper_integrations.openalex import search_openalex
 from ..paper_integrations.translator import translate_papers
 from ..paper_integrations.zotero import (
     attach_pdf_to_zotero,
+    auto_attach_pdf,
+    build_existing_item_index,
     get_zotero_item_sync_state,
     import_to_zotero,
+    list_zotero_library,
     zotero_status,
 )
 from ..services.dashboard_service import focus_elapsed_seconds
@@ -31,20 +36,23 @@ from ..services.papers_service import (
     apply_zotero_import_result_to_payload,
     apply_zotero_sync_state_to_paper,
     db_paper_to_search_model,
+    find_existing_paper,
     merge_search_papers,
     normalize_doi,
     normalize_paper_status,
     normalize_reading_mode,
     normalize_venue,
     search_paper_to_db_payload,
+    title_year_key,
     upsert_paper,
 )
+from ..services.settings_service import setting_value
 
 router = APIRouter()
 
 
 @router.post("/papers/search", response_model=SearchResponse)
-async def search_papers(request: SearchRequest) -> SearchResponse:
+async def search_papers(request: SearchRequest, db: Session = Depends(get_db)) -> SearchResponse:
     openalex_papers = await search_openalex(request)
     crossref_papers = await search_crossref(request)
     papers_by_key = {}
@@ -53,7 +61,49 @@ async def search_papers(request: SearchRequest) -> SearchResponse:
         current = papers_by_key.get(key)
         papers_by_key[key] = merge_search_papers(current, paper) if current else paper
     papers = sorted(papers_by_key.values(), key=lambda paper: (paper.relevance, paper.year or 0), reverse=True)
-    return SearchResponse(papers=await translate_papers(papers))
+    papers = await translate_papers(papers)
+    return SearchResponse(papers=await _align_with_local_state(papers, db))
+
+
+async def _align_with_local_state(papers: list[SearchPaperModel], db: Session) -> list[SearchPaperModel]:
+    """给检索结果打上“已在文献库 / 已在 Zotero”标记，避免重复导入。"""
+    db_index: dict[str, models.Paper] = {}
+    for paper in db.query(models.Paper).limit(1000).all():
+        doi = normalize_doi(paper.doi)
+        if doi:
+            db_index.setdefault(f"doi:{doi}", paper)
+        title_key = title_year_key(paper.title, paper.year)
+        if title_key:
+            db_index.setdefault(f"ty:{title_key}", paper)
+    try:
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as zotero_client:
+            zotero_index = await build_existing_item_index(zotero_client)
+    except (httpx.HTTPError, RuntimeError):
+        zotero_index = {}
+
+    for paper in papers:
+        doi = normalize_doi(paper.doi)
+        db_paper = (db_index.get(f"doi:{doi}") if doi else None) or None
+        if db_paper is None:
+            title_key = title_year_key(paper.title, paper.year)
+            if title_key:
+                db_paper = db_index.get(f"ty:{title_key}")
+        paper.in_library = db_paper is not None
+        paper.library_paper_id = db_paper.id if db_paper else None
+        paper.library_status = db_paper.status if db_paper else None
+        paper.library_pdf_status = db_paper.pdf_status if db_paper else None
+
+        zotero_key = None
+        if doi and f"doi:{doi}" in zotero_index:
+            zotero_key = zotero_index[f"doi:{doi}"]
+        else:
+            normalized_title = re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", (paper.title or "").lower())).strip()
+            year_text = str(paper.year or "")
+            candidate = zotero_index.get(f"title:{normalized_title}|year:{year_text}")
+            zotero_key = candidate
+        paper.in_zotero = zotero_key is not None
+        paper.zotero_item_key = zotero_key
+    return papers
 
 
 @router.post("/papers/import-zotero")
@@ -269,6 +319,89 @@ def unlink_paper_knowledge(paper_id: int, knowledge_id: int, db: Session = Depen
     return paper
 
 
+@router.get("/papers/pending-pdfs")
+def pending_pdfs(db: Session = Depends(get_db)) -> dict:
+    """给浏览器扩展的 CARSI 抓取队列：已关联 Zotero 但还没有 PDF 附件的文献。"""
+    papers = db.query(models.Paper).filter(
+        or_(models.Paper.zotero_item_key.is_not(None), models.Paper.zotero_key.is_not(None)),
+        models.Paper.zotero_pdf_attached.isnot(True),
+    ).order_by(models.Paper.updated_at.desc()).limit(50).all()
+    pending = []
+    for paper in papers:
+        item_key = paper.zotero_item_key or paper.zotero_key
+        if not item_key:
+            continue
+        pending.append({
+            "item_key": item_key,
+            "title": paper.title,
+            "doi": paper.doi,
+            "pdf_url": paper.pdf_url,
+            "url": paper.url or paper.source_url,
+            "venue": paper.venue,
+        })
+    return {"pending_pdfs": pending, "count": len(pending)}
+
+
+@router.post("/papers/{paper_id}/resolve-pdf", response_model=schemas.PaperOut)
+async def resolve_paper_pdf(paper_id: int, db: Session = Depends(get_db)):
+    """重新尝试为已有 Zotero 条目自动解析并挂载 PDF（开放获取兜底 + 机构会话）。"""
+    paper = crud.get_item(db, models.Paper, paper_id)
+    item_key = paper.zotero_item_key or paper.zotero_key
+    if not item_key:
+        raise HTTPException(status_code=400, detail="该文献尚未关联 Zotero 条目。")
+    result = await auto_attach_pdf(item_key, db_paper_to_search_model(paper))
+    if result.get("pdf_status") == "ATTACHED":
+        apply_pdf_state(
+            paper,
+            status="ATTACHED",
+            source=result.get("pdf_source"),
+            attachment_key=result.get("zotero_attachment_key"),
+        )
+    elif result.get("pdf_error_code"):
+        apply_pdf_state(
+            paper,
+            status=result.get("pdf_status") or "FAILED",
+            source=result.get("pdf_source"),
+            error_code=result.get("pdf_error_code"),
+            error_message=result.get("pdf_error_message"),
+        )
+    if result.get("pdf_url"):
+        paper.pdf_url = result["pdf_url"]
+    paper.zotero_synced_at = datetime.utcnow()
+    db.commit()
+    db.refresh(paper)
+    return paper
+
+
+@router.get("/papers/session-cookies")
+def get_session_cookies() -> dict:
+    from ..paper_integrations.zotero import session_cookie_hosts
+
+    hosts = session_cookie_hosts()
+    return {"hosts": [{"host": host, "cookie_preview": f"{len(value)} 字符"} for host, value in hosts], "count": len(hosts)}
+
+
+@router.put("/papers/session-cookies")
+def put_session_cookies(payload: dict) -> dict:
+    """浏览器扩展把出版商站点的机构会话 Cookie 转交给工作台，供服务器端下载使用。"""
+    from ..paper_integrations.zotero import save_session_cookie
+
+    host = str(payload.get("host") or "").strip().lower()
+    cookie = str(payload.get("cookie") or "").strip()
+    if not host or not cookie:
+        raise HTTPException(status_code=400, detail="host 和 cookie 不能为空。")
+    save_session_cookie(host, cookie)
+    return {"ok": True, "host": host}
+
+
+@router.delete("/papers/session-cookies/{host}")
+def delete_session_cookie(host: str) -> dict:
+    from ..paper_integrations.zotero import clear_session_cookie
+
+    clear_session_cookie(host.lower())
+    return {"ok": True}
+
+
 @router.get("/papers/{paper_id}/open-links")
 def paper_open_links(paper_id: int, db: Session = Depends(get_db)) -> dict:
     paper = crud.get_item(db, models.Paper, paper_id)
@@ -314,6 +447,72 @@ async def sync_zotero_papers(db: Session = Depends(get_db)) -> dict:
         synced += 1
     db.commit()
     return {"status": "ok", "synced": synced, "failed": failed, "message": f"已同步 Zotero：{synced} 篇文献。"}
+
+
+@router.post("/zotero/pull")
+async def pull_from_zotero(db: Session = Depends(get_db)) -> dict:
+    """把 Zotero 本地库中的文献（含以前手动添加的）导入/对齐到工作台文献库。"""
+    try:
+        async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+            items = await list_zotero_library(client)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=400, detail=f"无法连接 Zotero 本地服务：{exc}") from exc
+
+    library_name = setting_value(db, "integrations.zotero.library") or "My Library"
+    now = datetime.utcnow()
+    imported = 0
+    updated = 0
+    skipped = 0
+    for item in items:
+        title = (item.get("title") or "").strip()
+        if not title:
+            skipped += 1
+            continue
+        item_key = item["item_key"]
+        doi = normalize_doi(item.get("doi"))
+        year = item.get("year")
+        venue = normalize_venue(item.get("venue")) if item.get("venue") else None
+        existing = find_existing_paper(db, title, year, doi)
+        if existing is None:
+            paper = models.Paper(
+                title=title,
+                doi=doi,
+                year=year,
+                venue=venue or "Others",
+                abstract=item.get("abstract"),
+                url=item.get("url"),
+                source_url=item.get("url"),
+                status="Inbox",
+            )
+            db.add(paper)
+            db.flush()
+            imported += 1
+        else:
+            paper = existing
+            # 只补空字段，不覆盖已有整理结果
+            if not paper.doi and doi:
+                paper.doi = doi
+            if not paper.year and year:
+                paper.year = year
+            if not paper.abstract and item.get("abstract"):
+                paper.abstract = item["abstract"]
+            if not paper.url and item.get("url"):
+                paper.url = item["url"]
+                paper.source_url = item["url"]
+            if (not paper.venue or paper.venue == "Others") and venue:
+                paper.venue = venue
+            updated += 1
+
+        if not paper.zotero_item_key and not paper.zotero_key:
+            paper.zotero_item_key = item_key
+            paper.zotero_key = item_key
+        paper.zotero_library = paper.zotero_library or library_name
+        if item.get("pdf_attached") and paper.pdf_status != "ATTACHED":
+            apply_pdf_state(paper, status="ATTACHED", source=item.get("pdf_source") or "ZOTERO", attachment_key=item.get("attachment_key"))
+        paper.zotero_synced_at = now
+    db.commit()
+    message = f"已从 Zotero 导入 {imported} 篇新文献，对齐 {updated} 篇已有文献。" + ("有条目缺少标题被跳过。" if skipped else "")
+    return {"status": "ok", "imported": imported, "updated": updated, "skipped": skipped, "total": len(items), "message": message}
 
 
 @router.post("/papers/{paper_id}/queue", response_model=schemas.PaperOut)

@@ -241,6 +241,8 @@ def apply_zotero_import_result_to_payload(db: Session, data: dict[str, Any], zot
     data["pdf_error_code"] = item.get("pdf_error_code")
     data["pdf_error_message"] = item.get("pdf_error_message")
     data["zotero_synced_at"] = datetime.utcnow()
+    if item.get("pdf_url"):
+        data["pdf_url"] = item["pdf_url"]
 
 
 def apply_zotero_import_result_to_paper(db: Session, paper: models.Paper, zotero_result: dict, index: int = 0) -> None:

@@ -135,6 +135,17 @@ def secret_value(db: Session, key: str) -> str:
     return item.value if item else ""
 
 
+def all_settings_by_prefix(db: Session, prefix: str) -> dict[str, str]:
+    rows = db.query(models.SecretSetting).filter(models.SecretSetting.key.like(f"{prefix}%")).all()
+    return {row.key: row.value for row in rows if row.value}
+
+
+def delete_setting(db: Session, key: str) -> None:
+    item = db.get(models.SecretSetting, key)
+    if item:
+        db.delete(item)
+
+
 def put_setting(db: Session, key: str, value: str) -> None:
     item = db.get(models.SystemSetting, key)
     if not item:

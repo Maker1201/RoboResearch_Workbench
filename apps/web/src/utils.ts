@@ -195,6 +195,9 @@ function pdfSourceLabel(value?: string | null) {
   const labels: Record<string, string> = {
     DIRECT_DOWNLOAD: "PDF 来源：直链",
     OPEN_ACCESS: "PDF 来源：开放获取",
+    ARXIV: "PDF 来源：arXiv 预印本",
+    OPENALEX: "PDF 来源：OpenAlex",
+    SEMANTIC_SCHOLAR: "PDF 来源：Semantic Scholar",
     ZOTERO_CONNECTOR: "PDF 来源：Zotero Connector",
     ZOTERO: "PDF 来源：Zotero",
     LOCAL_FILE: "PDF 来源：本地挂载",
