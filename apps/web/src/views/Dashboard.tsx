@@ -1,20 +1,22 @@
 import { useEffect, useState } from "react";
-import { CalendarDays, Check, ChevronLeft, ChevronRight, Circle, CircleCheck, Pause, Play, Timer, X } from "lucide-react";
+import { CalendarDays, Check, ChevronLeft, ChevronRight, Pause, Play, Timer, X } from "lucide-react";
 import { api } from "../api";
 import type { DashboardSummary, FocusSession, Project, Task } from "../types";
 import type { Tab } from "../constants";
 import { ui } from "../i18n";
 import { Metric } from "../components/Metric";
 import { ProgressLine } from "../components/ProgressLine";
+import { TaskItem } from "../components/TaskItem";
 import { formatDisplayDate, formatInputDate, formatDuration, getMonthDays, shiftMonth, statusLabel, zhWeekdayLabels, enWeekdayLabels } from "../utils";
 
-export function Dashboard({ t, summary, tasks, refresh, openFocus, setTab }: {
+export function Dashboard({ t, summary, tasks, refresh, openFocus, setTab, openStudyDate }: {
   t: typeof ui.zh.dashboard;
   summary: DashboardSummary | null;
   tasks: Task[];
   refresh: () => Promise<void>;
   openFocus: () => void;
   setTab: (tab: Tab) => void;
+  openStudyDate: (date: string) => void;
 }) {
   const today = formatInputDate(new Date());
   const [clock, setClock] = useState(new Date());
@@ -40,10 +42,6 @@ export function Dashboard({ t, summary, tasks, refresh, openFocus, setTab }: {
   const weekTotal = Math.max(summary?.today.total_tasks ?? 0, 1);
   const weekRate = Math.round((weekDone / weekTotal) * 100);
 
-  async function toggleTask(task: Task) {
-    await api.updateTask(task.id, { status: task.status === "done" ? "todo" : "done" });
-    await refresh();
-  }
 
   return (
     <section className="dashboard-readonly-grid compact-overview">
@@ -115,18 +113,10 @@ export function Dashboard({ t, summary, tasks, refresh, openFocus, setTab }: {
             <ProgressLine label={t.completionRate} value={completionRate} />
             <div className="day-task-list module-scroll compact-day-list">
               {selectedTasks.length ? selectedTasks.map((task) => (
-                <div className={`day-task readonly-task ${task.status === "done" ? "task-done" : ""}`} key={task.id}>
-                  <button title={task.status === "done" ? t.reopen : t.markDone} onClick={() => void toggleTask(task)}>
-                    {task.status === "done" ? <CircleCheck size={17} /> : <Circle size={17} />}
-                  </button>
-                  <div>
-                    <strong>{task.title}</strong>
-                    <span>{task.priority} · {task.status}</span>
-                  </div>
-                </div>
+                <TaskItem key={task.id} task={task} refresh={refresh} readOnly />
               )) : <p className="muted">{t.noTasks}</p>}
             </div>
-            <button className="module-link" onClick={() => setTab("study")}>{t.viewModule}</button>
+            <button className="module-link" onClick={() => openStudyDate(taskViewDate)}>{t.viewModule}</button>
           </>
         )}
       </div>

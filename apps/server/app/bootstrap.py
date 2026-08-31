@@ -17,8 +17,27 @@ def init_database() -> None:
 
 
 def configure_integrations() -> None:
+    from .paper_integrations.ai_assistant import configure_settings_loader
     from .paper_integrations.zotero import configure_cookie_store, configure_key_store
-    from .services.settings_service import delete_setting, put_secret, secret_value, all_settings_by_prefix
+    from .services.settings_service import delete_setting, put_secret, secret_value, all_settings_by_prefix, setting_value
+
+    def load_ai_settings() -> dict[str, str]:
+        db = SessionLocal()
+        try:
+            return {
+                "provider": setting_value(db, "integrations.ai.provider"),
+                "api_base": setting_value(db, "integrations.ai.api_base"),
+                "api_key": secret_value(db, "integrations.ai.api_key"),
+                "model": setting_value(db, "integrations.ai.model"),
+                "output_language": setting_value(db, "integrations.ai.output_language"),
+                "research_interests": setting_value(db, "integrations.ai.research_interests"),
+                "max_pdf_chars": setting_value(db, "integrations.ai.max_pdf_chars"),
+                "zotero_data_dir": setting_value(db, "integrations.zotero.data_dir"),
+            }
+        finally:
+            db.close()
+
+    configure_settings_loader(load_ai_settings)
 
     def load_zotero_key() -> str | None:
         db = SessionLocal()
@@ -103,6 +122,8 @@ def migrate_schema() -> None:
             columns = {column["name"] for column in inspector.get_columns("tasks")}
             if "milestone_id" not in columns:
                 conn.execute(text("ALTER TABLE tasks ADD COLUMN milestone_id INTEGER"))
+            if "due_time" not in columns:
+                conn.execute(text("ALTER TABLE tasks ADD COLUMN due_time VARCHAR(8)"))
         if "experiments" in existing_tables:
             columns = {column["name"] for column in inspector.get_columns("experiments")}
             if "git_branch" not in columns:
@@ -125,6 +146,10 @@ def migrate_schema() -> None:
                 "pdf_error_code": "VARCHAR(120)",
                 "pdf_error_message": "VARCHAR(500)",
                 "zotero_synced_at": "DATETIME",
+                "ai_summary": "TEXT",
+                "ai_relevance": "FLOAT",
+                "ai_suggested_mode": "VARCHAR(40)",
+                "ai_triaged_at": "DATETIME",
             }
             for name, ddl in additions.items():
                 if name not in columns:
@@ -142,6 +167,9 @@ def migrate_schema() -> None:
                 "one_sentence_summary": "TEXT",
                 "relevance_to_me": "TEXT",
                 "related_project_id": "INTEGER",
+                "note_source": "VARCHAR(40) DEFAULT 'manual'",
+                "zotero_note_key": "VARCHAR(80)",
+                "zotero_note_synced_at": "DATETIME",
             }
             for name, ddl in additions.items():
                 if name not in columns:

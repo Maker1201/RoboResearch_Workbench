@@ -180,6 +180,21 @@ def apply_pdf_state(
     paper.zotero_synced_at = datetime.utcnow()
 
 
+def mark_zotero_item_deleted(paper: models.Paper, item_key: str | None = None) -> None:
+    deleted_key = item_key or paper.zotero_item_key or paper.zotero_key
+    paper.zotero_item_key = None
+    paper.zotero_key = None
+    paper.zotero_attachment_key = None
+    paper.zotero_pdf_attached = False
+    paper.zotero_pdf_status = "ZOTERO_ITEM_DELETED"
+    paper.pdf_status = "NONE"
+    paper.pdf_source = None
+    paper.pdf_error_code = "ZOTERO_ITEM_DELETED"
+    paper.pdf_error_message = f"Zotero item {deleted_key} no longer exists." if deleted_key else "Linked Zotero item no longer exists."
+    paper.pdf_last_checked_at = datetime.utcnow()
+    paper.zotero_synced_at = datetime.utcnow()
+
+
 def apply_zotero_sync_state_to_paper(paper: models.Paper, state: dict[str, Any]) -> None:
     attachment_key = state.get("zotero_attachment_key")
     if state.get("pdf_status") == "ATTACHED" or attachment_key:

@@ -70,6 +70,7 @@ export const api = {
     method: "PATCH",
     body: JSON.stringify(project),
   }),
+  deleteProject: (id: number) => request<{ ok: boolean; id: number }>(`/projects/${id}`, { method: "DELETE" }),
   refreshProjectsGit: () => request<Project[]>("/projects/refresh-git", { method: "POST" }),
   projectDetail: (id: number) => request<any>(`/projects/${id}/detail`),
   projectProgress: (id: number) => request<ProjectProgress>(`/projects/${id}/progress`),
@@ -186,7 +187,7 @@ export const api = {
     method: "POST",
     body: JSON.stringify(payload),
   }),
-  syncZoteroPapers: () => request<{ status: string; synced: number; failed: Array<{ item_key: string; title: string; error: string }>; message: string }>("/zotero/sync", { method: "POST" }),
+  syncZoteroPapers: () => request<{ status: string; synced: number; deleted?: number; failed: Array<{ item_key: string; title: string; error: string }>; message: string }>("/zotero/sync", { method: "POST" }),
   pullFromZotero: () => request<{ status: string; imported: number; updated: number; skipped: number; total: number; message: string }>("/zotero/pull", { method: "POST" }),
   paperDetail: (id: number) => request<any>(`/papers/${id}/detail`),
   searchPapers: (payload: any) => request<{ papers: SearchPaper[] }>("/papers/search", {
@@ -208,6 +209,13 @@ export const api = {
     body: JSON.stringify(payload),
   }),
   exportNote: (id: number) => request<{ filename: string; content: string }>(`/reading-notes/${id}/export`),
+  pushNoteToZotero: (id: number) => request<{ status: string; action: string; zotero_note_key: string | null; message: string }>(`/reading-notes/${id}/push-zotero`, { method: "POST" }),
+  aiTriagePapers: (paperIds?: number[]) => request<Paper[]>("/papers/ai/triage", {
+    method: "POST",
+    body: JSON.stringify({ paper_ids: paperIds && paperIds.length ? paperIds : null }),
+  }),
+  aiDraftNote: (paperId: number) => request<{ paper_id: number; note: ReadingNote; source: string }>(`/papers/${paperId}/ai/draft-note`, { method: "POST" }),
+  paperPdfText: (paperId: number) => request<{ paper_id: number; pdf_path: string; char_count: number; truncated: boolean; text: string }>(`/papers/${paperId}/pdf-text`),
   experiments: () => request<Experiment[]>("/experiments"),
   createExperiment: (experiment: Partial<Experiment>) => request<Experiment>("/experiments", {
     method: "POST",

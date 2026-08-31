@@ -1,4 +1,5 @@
 import os
+import subprocess
 import tempfile
 
 os.environ["WORKBENCH_DATABASE_URL"] = f"sqlite:///{tempfile.gettempdir()}/roboresearch_workbench_test.db"
@@ -95,6 +96,32 @@ def test_settings_round_trip_masks_secrets():
     assert data["integrations"]["zotero"]["api_key_masked"] != "zotero-secret-token"
     assert data["integrations"]["github"]["personal_access_token"] is None
     assert data["integrations"]["github"]["personal_access_token_masked"] != "github-secret-token"
+
+
+def test_project_discovery_includes_configured_projects_folder():
+    root = tempfile.mkdtemp()
+    top_project = os.path.join(root, "TopProject")
+    nested_project = os.path.join(root, "Projects", "NestedProject")
+    os.makedirs(top_project)
+    os.makedirs(nested_project)
+    subprocess.run(["git", "init"], cwd=top_project, check=True, capture_output=True)
+    subprocess.run(["git", "init"], cwd=nested_project, check=True, capture_output=True)
+
+    client.patch("/api/settings", json={"paths": {
+        "projects_root": root,
+        "knowledge_root": root,
+        "obsidian_vault": root,
+        "dataset_root": root,
+        "experiment_root": root,
+    }})
+
+    directories = client.get("/filesystem/directories").json()
+    assert directories["path"] == root
+
+    discovered = client.get("/projects/discover").json()
+    discovered_paths = {item["path"] for item in discovered}
+    assert os.path.realpath(top_project) in discovered_paths
+    assert os.path.realpath(nested_project) in discovered_paths
 
 
 def test_dashboard_summary_shape():
@@ -271,6 +298,30 @@ def test_paper_knowledge_link_round_trip():
     assert detail_after["knowledge_links"] == []
 
 
+def test_delete_project_removes_registration_and_clears_loose_links():
+    project_dir = tempfile.mkdtemp()
+    project = client.post("/projects", json={
+        "name": "Delete Me Project",
+        "path": project_dir,
+        "status": "active",
+    }).json()
+    paper = client.post("/papers", json={
+        "title": "Project Linked Paper",
+        "authors": "A. Author",
+        "year": 2026,
+        "venue": "ICRA",
+        "status": "To Read",
+    }).json()
+    client.patch(f"/papers/{paper['id']}", json={"related_project_id": project["id"]})
+
+    deleted = client.delete(f"/projects/{project['id']}")
+    assert deleted.status_code == 200
+    assert deleted.json()["ok"] is True
+    assert client.get(f"/projects/{project['id']}/detail").status_code == 404
+    assert os.path.isdir(project_dir)
+    assert client.get(f"/papers/{paper['id']}/detail").json()["paper"]["related_project_id"] is None
+
+
 def test_refresh_projects_git_returns_list():
     project = client.post("/projects", json={
         "name": "Refresh Git Project",
@@ -283,3 +334,77 @@ def test_refresh_projects_git_returns_list():
     assert any(item["id"] == project["id"] for item in projects)
     assert all("health" in item for item in projects)
 
+
+
+def test_check_zotero_deleted_item_clears_local_link(monkeypatch):
+    from app.paper_integrations.zotero import ZoteroItemNotFound
+
+    paper = client.post("/papers", json={
+        "title": "Deleted Zotero Item Paper",
+        "authors": "A. Author",
+        "year": 2026,
+        "venue": "ICRA",
+        "status": "To Read",
+        "zotero_item_key": "ZDELETED1",
+        "zotero_key": "ZDELETED1",
+        "zotero_attachment_key": "ZATTOLD",
+        "zotero_pdf_attached": True,
+        "zotero_pdf_status": "ATTACHED",
+        "pdf_status": "ATTACHED",
+        "pdf_source": "ZOTERO",
+    }).json()
+
+    async def fake_get_zotero_item_sync_state(item_key):
+        raise ZoteroItemNotFound(item_key)
+
+    monkeypatch.setattr("app.routers.papers.get_zotero_item_sync_state", fake_get_zotero_item_sync_state)
+
+    response = client.post(f"/papers/{paper['id']}/zotero/check")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["id"] == paper["id"]
+    assert data["zotero_item_key"] is None
+    assert data["zotero_key"] is None
+    assert data["zotero_attachment_key"] is None
+    assert data["zotero_pdf_attached"] is False
+    assert data["zotero_pdf_status"] == "ZOTERO_ITEM_DELETED"
+    assert data["pdf_status"] == "NONE"
+    assert data["pdf_error_code"] == "ZOTERO_ITEM_DELETED"
+
+
+def test_sync_zotero_deleted_item_clears_local_link(monkeypatch):
+    from app.paper_integrations.zotero import ZoteroItemNotFound
+
+    paper = client.post("/papers", json={
+        "title": "Bulk Deleted Zotero Item Paper",
+        "authors": "A. Author",
+        "year": 2026,
+        "venue": "IROS",
+        "status": "To Read",
+        "zotero_item_key": "ZDELETED2",
+        "zotero_key": "ZDELETED2",
+        "zotero_attachment_key": "ZATTOLD2",
+        "zotero_pdf_attached": True,
+        "zotero_pdf_status": "ATTACHED",
+        "pdf_status": "ATTACHED",
+        "pdf_source": "ZOTERO",
+    }).json()
+
+    async def fake_get_zotero_item_sync_state(item_key):
+        if item_key == "ZDELETED2":
+            raise ZoteroItemNotFound(item_key)
+        return {"item_key": item_key, "pdf_attached": False, "pdf_status": "NONE"}
+
+    monkeypatch.setattr("app.routers.papers.get_zotero_item_sync_state", fake_get_zotero_item_sync_state)
+
+    response = client.post("/zotero/sync")
+
+    assert response.status_code == 200
+    sync = response.json()
+    assert sync["deleted"] >= 1
+    assert not sync["failed"]
+    data = client.get(f"/papers/{paper['id']}/detail").json()["paper"]
+    assert data["zotero_item_key"] is None
+    assert data["zotero_attachment_key"] is None
+    assert data["pdf_error_code"] == "ZOTERO_ITEM_DELETED"

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { ChevronLeft, Eye, FolderOpen, GitBranch, GitCommitHorizontal, History, Link, Plus, RefreshCw, RotateCcw, Save, Search, Send, SettingsIcon, ShieldCheck, SlidersHorizontal, UploadCloud } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronLeft, Eye, FolderOpen, GitBranch, GitCommitHorizontal, History, Link, Plus, RefreshCw, RotateCcw, Save, Search, Send, SettingsIcon, ShieldCheck, SlidersHorizontal, Trash2, UploadCloud } from "lucide-react";
 import { api } from "../api";
 import type { DirectoryListing, Experiment, GitActionResult, GitCommit, GitSecurityScan, Project, ProjectDetail, ProjectProgress, ProjectScan, ProjectStage, GitVersionDetail } from "../types";
 import { ui } from "../i18n";
@@ -33,6 +33,7 @@ export function Projects({ t: _t, projects, refresh }: { t: typeof ui.zh.project
   const [securityScan, setSecurityScan] = useState<GitSecurityScan | null>(null);
   const [stageDrafts, setStageDrafts] = useState<Record<number, { status: string; progress: number; weight: number }>>({});
   const [newStage, setNewStage] = useState({ title: "", status: "pending", progress: 0, weight: 1 });
+  const detailRequestSeq = useRef(0);
 
   useEffect(() => setItems(projects), [projects]);
   useEffect(() => {
@@ -67,7 +68,9 @@ export function Projects({ t: _t, projects, refresh }: { t: typeof ui.zh.project
 
   async function loadDetail(id = selected?.id) {
     if (!id) return;
+    const requestSeq = ++detailRequestSeq.current;
     const data = await api.projectDetail(id);
+    if (requestSeq !== detailRequestSeq.current) return;
     setDetail(data);
     setSelected(data.project);
     setItems((current) => current.map((project) => project.id === data.project.id ? data.project : project));
@@ -76,6 +79,17 @@ export function Projects({ t: _t, projects, refresh }: { t: typeof ui.zh.project
     setDiff("");
     setPublish((current) => ({ ...current, repository_name: data.project.name, description: data.project.description || "", default_branch: data.project.default_branch || data.git?.branch || "main" }));
     if (activeTab === "versions") await loadVersions(id);
+  }
+
+  function selectProject(project: Project) {
+    setSelected(project);
+    setDetail(null);
+    setChecked([]);
+    setDiff("");
+    setVersions([]);
+    setSelectedVersion(null);
+    setSecurityScan(null);
+    setMessage("");
   }
 
   async function openBrowser(path?: string) {
@@ -159,6 +173,29 @@ export function Projects({ t: _t, projects, refresh }: { t: typeof ui.zh.project
     }
   }
 
+  async function deleteSelectedProject() {
+    if (!selectedProject) return;
+    const confirmed = window.confirm(`从工作台移除项目“${selectedProject.name}”？本地文件夹不会被删除。`);
+    if (!confirmed) return;
+    try {
+      await api.deleteProject(selectedProject.id);
+      const remaining = items.filter((project) => project.id !== selectedProject.id);
+      detailRequestSeq.current += 1;
+      setItems(remaining);
+      setDetail(null);
+      setChecked([]);
+      setDiff("");
+      setVersions([]);
+      setSelectedVersion(null);
+      setSecurityScan(null);
+      setSelected(remaining[0] ?? null);
+      setMessage(`已从工作台移除 ${selectedProject.name}。本地文件夹未删除。`);
+      await refresh();
+    } catch (error) {
+      setMessage(`删除失败：${friendlyError(error)}`);
+    }
+  }
+
   async function saveProjectSettings() {
     if (!selected || !detail?.project) return;
     const updated = await api.updateProject(selected.id, detail.project);
@@ -210,7 +247,7 @@ export function Projects({ t: _t, projects, refresh }: { t: typeof ui.zh.project
 
   const git = detail?.git;
   const progress: ProjectProgress | undefined = detail?.progress;
-  const selectedProject = detail?.project as Project | undefined;
+  const selectedProject = (detail?.project ?? selected) as Project | undefined;
 
   return (
     <section className="projects-hub">
@@ -230,7 +267,7 @@ export function Projects({ t: _t, projects, refresh }: { t: typeof ui.zh.project
           <button onClick={() => void loadFiltered()}><SlidersHorizontal size={16} />应用</button>
         </div>
         <div className="project-list">
-          {items.map((project) => <ProjectCard key={project.id} project={project} selected={selected?.id === project.id} onClick={() => setSelected(project)} />)}
+          {items.map((project) => <ProjectCard key={project.id} project={project} selected={selected?.id === project.id} onClick={() => selectProject(project)} />)}
         </div>
       </div>
 
@@ -427,6 +464,7 @@ export function Projects({ t: _t, projects, refresh }: { t: typeof ui.zh.project
                   <label><span>结果目录</span><input value={detail.project.results_dir || ""} onChange={(event) => updateProjectField({ results_dir: event.target.value })} placeholder="结果目录" /></label>
                   <label className="full-field"><span>项目描述</span><textarea value={detail.project.description || ""} onChange={(event) => updateProjectField({ description: event.target.value })} /></label>
                   <button className="primary" onClick={() => void saveProjectSettings()}><SettingsIcon size={16} />保存项目设置</button>
+                  <button className="danger" onClick={() => void deleteSelectedProject()}><Trash2 size={16} />从工作台移除</button>
                 </div>
               </div>
             )}

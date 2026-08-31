@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { BookOpen, Check, Clock3, Eye, Link, NotebookPen, Plus, RefreshCw, Save, Search, Send, Timer, UploadCloud, X } from "lucide-react";
+import { BookOpen, Check, Clock3, Eye, Link, NotebookPen, Plus, RefreshCw, Save, Search, Send, Sparkles, Timer, UploadCloud, X } from "lucide-react";
 import { api } from "../api";
 import type { Paper, Project, ReadingNote, SearchPaper } from "../types";
 import { ui } from "../i18n";
@@ -39,7 +39,8 @@ export function Papers({ t, papers, projects, notes, refresh, setMessage, setLoa
   const selectedResultList = Object.values(selectedResults);
   const candidates = papers.filter((paper) => normalizePaperStatus(paper.status) === "Candidate");
   const library = papers.filter((paper) => !["Candidate", "Dropped"].includes(normalizePaperStatus(paper.status)) && (paper.zotero_item_key || paper.zotero_key || normalizePaperStatus(paper.status) !== "Inbox"));
-  const queue = papers.filter((paper) => Boolean(paper.queued_at) || ["To Read", "Skimming", "Reading", "Deep Reading"].includes(normalizePaperStatus(paper.status)));
+  const queue = papers.filter((paper) => Boolean(paper.queued_at) || ["To Read", "Skimming", "Reading", "Deep Reading"].includes(normalizePaperStatus(paper.status)))
+    .sort((a, b) => (b.ai_relevance ?? -1) - (a.ai_relevance ?? -1));
   const filteredLibrary = library.filter((paper) => (!venue || paper.venue === venue) && (!topic || (paper.tags || "").toLowerCase().includes(topic.toLowerCase())));
   const selectedPaper = papers.find((paper) => paper.id === selectedPaperId) || queue[0] || library[0] || candidates[0];
   const selectedNotes = selectedPaper ? notes.filter((note) => note.paper_id === selectedPaper.id) : [];
@@ -214,6 +215,60 @@ export function Papers({ t, papers, projects, notes, refresh, setMessage, setLoa
     });
     await refresh();
     setMessage("阅读笔记已保存。");
+  }
+
+  async function aiTriageQueue() {
+    setLoading(true);
+    setMessage("正在 AI 分诊阅读队列…");
+    try {
+      const updated = await api.aiTriagePapers();
+      await refresh();
+      setMessage(updated.length ? `AI 已分诊 ${updated.length} 篇文献，队列已按相关度排序。` : "没有待分诊的队列文献，先加入阅读队列。");
+    } catch (error) {
+      setMessage(`AI 分诊失败：${friendlyError(error)}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function aiDraftPaperNote() {
+    if (!selectedPaper) return;
+    setLoading(true);
+    setMessage(`正在解析论文并生成草稿：${selectedPaper.title.slice(0, 40)}…（长论文可能需要 1-2 分钟）`);
+    try {
+      const result = await api.aiDraftNote(selectedPaper.id);
+      setSelectedPaperId(result.paper_id);
+      setSelectedNoteId(result.note.id);
+      setNoteDraft(result.note.content_markdown || result.note.content || "");
+      setNoteSummary(result.note.one_sentence_summary || "");
+      await refresh();
+      setMessage(result.source === "ai_draft" ? "AI 草稿已生成，请在 Zotero 阅读时重点修正第 8/10/11 节。" : "AI 暂未生成草稿（接口返回异常），已回退为空模板。");
+    } catch (error) {
+      setMessage(`AI 生成草稿失败：${friendlyError(error)}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function pushNoteToZotero() {
+    if (!selectedNote) return;
+    setLoading(true);
+    try {
+      await saveNote();
+      const result = await api.pushNoteToZotero(selectedNote.id);
+      await refresh();
+      setMessage(result.message);
+    } catch (error) {
+      setMessage(`同步到 Zotero 失败：${friendlyError(error)}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function noteSourceLabel(source?: string | null) {
+    if (source === "ai_draft") return "AI 草稿";
+    if (source === "template") return "空模板";
+    return "手工";
   }
 
   async function exportNote() {
@@ -413,12 +468,26 @@ export function Papers({ t, papers, projects, notes, refresh, setMessage, setLoa
     </div>;
   }
 
-  function renderPaperRow(paper: Paper, actions: ReactNode, className = "") {
+  function aiQueueInfo(paper: Paper) {
+    if (!paper.ai_summary) return null;
+    const suggested = paper.ai_suggested_mode;
+    return <div className="ai-triage-box" onClick={(event) => event.stopPropagation()}>
+      <span className="ai-summary-line"><Sparkles size={14} />{paper.ai_summary}</span>
+      <div className="toolbar ai-triage-actions">
+        <span className="ai-chip">相关度 {Math.round(paper.ai_relevance ?? 0)}%</span>
+        {suggested && <span className="ai-chip">建议 {readingModeLabel(suggested)}</span>}
+        {suggested && suggested !== paper.reading_mode && <button onClick={() => void updatePaperMode(paper, suggested)}>采纳建议</button>}
+      </div>
+    </div>;
+  }
+
+  function renderPaperRow(paper: Paper, actions: ReactNode, className = "", extra?: ReactNode) {
     return <article className={`paper-card paper-workflow-card ${className} ${selectedPaper?.id === paper.id ? "selected" : ""}`} key={paper.id} onClick={() => setSelectedPaperId(paper.id)}>
       <div className="paper-card-top"><span>{paper.venue} · {paper.year || t.noYear}</span><span>{paperStatusLabel(paper.status)}</span></div>
       <h3>{paper.title}</h3>
       {paper.abstract && <p className="abstract-snippet">{paper.abstract.slice(0, 360)}</p>}
       <div className="tag-cloud"><span>{priorityLabel(paper.priority)}</span>{paper.reading_purpose && <span>{readingPurposeLabel(paper.reading_purpose)}</span>}{paper.reading_mode && <span>{readingModeLabel(paper.reading_mode)}</span>}{(paper.zotero_item_key || paper.zotero_key) && <span>{zoteroSyncLabel(paper)}</span>}{paper.pdf_source && <span>{pdfSourceLabel(paper.pdf_source)}</span>}</div>
+      {extra}
       {renderPdfAssist(paper)}
       <div className="toolbar" onClick={(event) => event.stopPropagation()}>{actions}</div>
     </article>;
@@ -486,13 +555,13 @@ export function Papers({ t, papers, projects, notes, refresh, setMessage, setLoa
       </div>}
 
       {section === "Reading Queue" && <div className="literature-grid">
-        <div className="panel queue-control-panel"><h2>队列设置</h2><div className="form-grid"><label><span>优先级</span><select value={queueForm.priority} onChange={(event) => setQueueForm({ ...queueForm, priority: event.target.value })}>{paperPriorities.map((item) => <option key={item} value={item}>{priorityLabel(item)}</option>)}</select></label><label><span>阅读目的</span><select value={queueForm.reading_purpose} onChange={(event) => setQueueForm({ ...queueForm, reading_purpose: event.target.value })}>{readingPurposes.map((item) => <option key={item} value={item}>{readingPurposeLabel(item)}</option>)}</select></label><label><span>关联项目</span><select value={queueForm.related_project_id} onChange={(event) => setQueueForm({ ...queueForm, related_project_id: event.target.value })}><option value="">不关联项目</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label><label><span>阅读模式</span><select value={queueForm.reading_mode} onChange={(event) => setQueueForm({ ...queueForm, reading_mode: event.target.value })}>{readingModes.map((item) => <option key={item} value={item}>{readingModeLabel(item)}</option>)}</select></label></div></div>
-        <div className="paper-grid reading-queue-grid">{queue.map((paper) => renderPaperRow(paper, <><select value={paper.status} onChange={(event) => void updatePaperStatus(paper, event.target.value)}>{readingStatuses.map((item) => <option key={item} value={item}>{paperStatusLabel(item)}</option>)}</select><select value={paper.reading_mode || ""} onChange={(event) => void updatePaperMode(paper, event.target.value)}><option value="">阅读模式</option>{readingModes.map((item) => <option key={item} value={item}>{readingModeLabel(item)}</option>)}</select><button onClick={() => void createNote(paper)}><NotebookPen size={16} />笔记</button></>, "reading-queue-card"))}</div>
+        <div className="panel queue-control-panel"><div className="panel-heading"><h2>队列设置</h2><button className="primary" onClick={() => void aiTriageQueue()}><Sparkles size={16} />AI 分诊</button></div><div className="form-grid"><label><span>优先级</span><select value={queueForm.priority} onChange={(event) => setQueueForm({ ...queueForm, priority: event.target.value })}>{paperPriorities.map((item) => <option key={item} value={item}>{priorityLabel(item)}</option>)}</select></label><label><span>阅读目的</span><select value={queueForm.reading_purpose} onChange={(event) => setQueueForm({ ...queueForm, reading_purpose: event.target.value })}>{readingPurposes.map((item) => <option key={item} value={item}>{readingPurposeLabel(item)}</option>)}</select></label><label><span>关联项目</span><select value={queueForm.related_project_id} onChange={(event) => setQueueForm({ ...queueForm, related_project_id: event.target.value })}><option value="">不关联项目</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label><label><span>阅读模式</span><select value={queueForm.reading_mode} onChange={(event) => setQueueForm({ ...queueForm, reading_mode: event.target.value })}>{readingModes.map((item) => <option key={item} value={item}>{readingModeLabel(item)}</option>)}</select></label></div></div>
+        <div className="paper-grid reading-queue-grid">{queue.map((paper) => renderPaperRow(paper, <><select value={paper.status} onChange={(event) => void updatePaperStatus(paper, event.target.value)}>{readingStatuses.map((item) => <option key={item} value={item}>{paperStatusLabel(item)}</option>)}</select><select value={paper.reading_mode || ""} onChange={(event) => void updatePaperMode(paper, event.target.value)}><option value="">阅读模式</option>{readingModes.map((item) => <option key={item} value={item}>{readingModeLabel(item)}</option>)}</select><button onClick={() => void createNote(paper)}><NotebookPen size={16} />笔记</button></>, "reading-queue-card", aiQueueInfo(paper)))}</div>
       </div>}
 
       {section === "Reading Notes" && <div className="literature-grid note-workbench-grid">
         <div className="panel note-paper-list"><h2>文献</h2><div className="list compact-cards">{library.map((paper) => <button className="list-item" key={paper.id} onClick={() => setSelectedPaperId(paper.id)}><strong>{paper.title}</strong><span>{paperStatusLabel(paper.status)} · {paper.reading_mode ? readingModeLabel(paper.reading_mode) : "未设置阅读模式"}</span></button>)}</div></div>
-        <div className="panel note-editor-panel"><div className="panel-heading"><h2>阅读笔记</h2><div className="toolbar">{selectedPaper && <button onClick={() => void createNote(selectedPaper)}><Plus size={16} />新建</button>}<button disabled={!selectedNote} onClick={() => void saveNote()}><Save size={16} />保存</button><button disabled={!selectedNote} onClick={() => void exportNote()}><UploadCloud size={16} />导出 .md</button><button disabled={!selectedPaper} onClick={() => void startReadingFocus()}><Timer size={16} />开始阅读</button></div></div>{selectedPaper && <div className="paper-detail-strip"><strong>{selectedPaper.title}</strong><span>{selectedPaper.venue} · {selectedPaper.year || t.noYear}</span><span>Zotero：{selectedPaper.zotero_item_key || selectedPaper.zotero_key || "未关联"}</span></div>}<div className="form-grid"><label><span>一句话总结</span><textarea value={noteSummary} onChange={(event) => setNoteSummary(event.target.value)} /></label><label><span>与我的研究相关性</span><textarea value={noteRelevance} onChange={(event) => setNoteRelevance(event.target.value)} /></label><label className="full-field"><span>Markdown 笔记</span><textarea className="large note-template" value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} /></label></div></div>
+        <div className="panel note-editor-panel"><div className="panel-heading"><h2>阅读笔记</h2><div className="toolbar">{selectedPaper && <button onClick={() => void createNote(selectedPaper)}><Plus size={16} />新建</button>}{selectedPaper && <button className="primary" onClick={() => void aiDraftPaperNote()}><Sparkles size={16} />AI 草稿</button>}<button disabled={!selectedNote} onClick={() => void saveNote()}><Save size={16} />保存</button><button disabled={!selectedNote} onClick={() => void pushNoteToZotero()}><Send size={16} />同步 Zotero</button><button disabled={!selectedNote} onClick={() => void exportNote()}><UploadCloud size={16} />导出 .md</button><button disabled={!selectedPaper} onClick={() => void startReadingFocus()}><Timer size={16} />开始阅读</button></div></div>{selectedPaper && <div className="paper-detail-strip"><strong>{selectedPaper.title}</strong><span>{selectedPaper.venue} · {selectedPaper.year || t.noYear}</span><span>Zotero：{selectedPaper.zotero_item_key || selectedPaper.zotero_key || "未关联"}</span>{selectedNote && <span>笔记：{noteSourceLabel(selectedNote.note_source)} · {selectedNote.zotero_note_key ? "已同步 Zotero" : "未同步"}</span>}</div>}<div className="form-grid"><label><span>一句话总结</span><textarea value={noteSummary} onChange={(event) => setNoteSummary(event.target.value)} /></label><label><span>与我的研究相关性</span><textarea value={noteRelevance} onChange={(event) => setNoteRelevance(event.target.value)} /></label><label className="full-field"><span>Markdown 笔记</span><textarea className="large note-template" value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} /></label></div></div>
       </div>}
 
       {section === "Collections" && <div className="panel"><h2>合集</h2><div className="collection-grid">{venues.map((item) => <button key={item} onClick={() => { setVenue(item); setSection("Library"); }}><strong>{item}</strong><span>{papers.filter((paper) => paper.venue === item).length} 篇文献</span></button>)}</div><div className="tag-cloud collection-tags">{topicFilters.map((item) => <button key={item} onClick={() => { setTopic(item); setSection("Library"); }}>{item}</button>)}</div></div>}

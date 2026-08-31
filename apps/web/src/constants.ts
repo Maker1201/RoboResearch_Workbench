@@ -21,7 +21,7 @@ export const literatureSectionLabels: Record<string, string> = {
 };
 export const topicFilters = ["VLA", "导航", "操作", "SLAM", "机器人学习"];
 
-export type Tab = "dashboard" | "study" | "projects" | "papers" | "knowledge" | "research" | "review" | "notes" | "experiments" | "settings";
+export type Tab = "dashboard" | "study" | "projects" | "papers" | "knowledge" | "research" | "review" | "experiments" | "settings";
 
 
 export const coreModuleRows = {

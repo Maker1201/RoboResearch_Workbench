@@ -10,7 +10,6 @@ import {
   LayoutDashboard,
   Link,
   Loader2,
-  NotebookPen,
   PenLine,
   Settings as SettingsIcon,
   ShieldCheck,
@@ -23,7 +22,6 @@ import { friendlyError } from "./utils";
 import { Dashboard, FocusMode } from "./views/Dashboard";
 import { Experiments } from "./views/Experiments";
 import { Knowledge } from "./views/Knowledge";
-import { Notes } from "./views/Notes";
 import { Papers } from "./views/Papers";
 import { Projects } from "./views/Projects";
 import { ResearchWriting } from "./views/ResearchWriting";
@@ -31,7 +29,7 @@ import { Review } from "./views/Review";
 import { SettingsPage } from "./views/Settings";
 import { StudyLife } from "./views/StudyLife";
 
-const TAB_KEYS: Tab[] = ["dashboard", "study", "projects", "papers", "knowledge", "research", "review", "notes", "experiments", "settings"];
+const TAB_KEYS: Tab[] = ["dashboard", "study", "projects", "papers", "knowledge", "research", "review", "experiments", "settings"];
 
 function initialTab(): Tab {
   const saved = localStorage.getItem("rrw-tab");
@@ -45,6 +43,7 @@ export default function App() {
   const [dashboardSummary, setDashboardSummary] = useState<DashboardSummary | null>(null);
   const [settings, setSettings] = useState<SystemSettings | null>(null);
   const [focusMode, setFocusMode] = useState(false);
+  const [studyDate, setStudyDate] = useState<string | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [papers, setPapers] = useState<Paper[]>([]);
@@ -116,7 +115,6 @@ export default function App() {
     ["knowledge", Link, t.nav.knowledge],
     ["research", PenLine, t.nav.research],
     ["review", BarChart3, t.nav.review],
-    ["notes", NotebookPen, t.nav.notes],
     ["experiments", FlaskConical, t.nav.experiments],
     ["settings", SettingsIcon, t.nav.settings],
   ];
@@ -161,14 +159,16 @@ export default function App() {
           </button>
         </header>
 
-        {tab === "dashboard" && (focusMode ? <FocusMode t={t.focusMode} tasks={tasks} projects={projects} summary={dashboardSummary} refresh={refresh} exit={() => setFocusMode(false)} /> : <Dashboard t={t.dashboard} summary={dashboardSummary} tasks={tasks} refresh={refresh} openFocus={() => setFocusMode(true)} setTab={setTab} />)}
-        {tab === "study" && <StudyLife t={t.study} tasks={tasks} refresh={refresh} />}
+        {tab === "dashboard" && (focusMode ? <FocusMode t={t.focusMode} tasks={tasks} projects={projects} summary={dashboardSummary} refresh={refresh} exit={() => setFocusMode(false)} /> : <Dashboard t={t.dashboard} summary={dashboardSummary} tasks={tasks} refresh={refresh} openFocus={() => setFocusMode(true)} setTab={setTab} openStudyDate={(date) => {
+          setStudyDate(date);
+          setTab("study");
+        }} />)}
+        {tab === "study" && <StudyLife t={t.study} tasks={tasks} refresh={refresh} initialDate={studyDate} />}
         {tab === "projects" && <Projects t={t.projects} projects={projects} refresh={refresh} />}
         {tab === "papers" && <Papers t={t.papers} papers={papers} projects={projects} notes={notes} refresh={refresh} setMessage={setMessage} setLoading={setLoading} />}
         {tab === "knowledge" && <Knowledge t={t.knowledge} knowledge={knowledge} papers={papers} refresh={refresh} />}
         {tab === "research" && <ResearchWriting t={t.research} projects={projects} papers={papers} notes={notes} experiments={experiments} />}
         {tab === "review" && <Review t={t.review} moduleRows={coreModuleRows[lang]} summary={summary} projects={projects} papers={papers} experiments={experiments} />}
-        {tab === "notes" && <Notes t={t.notes} notes={notes} papers={papers} refresh={refresh} />}
         {tab === "experiments" && <Experiments t={t.experiments} experiments={experiments} projects={projects} refresh={refresh} />}
         {tab === "settings" && settings && <SettingsPage t={t.settings} settings={settings} setSettings={setSettings} setLang={setLang} setMessage={setMessage} />}
       </main>

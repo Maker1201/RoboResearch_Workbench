@@ -6,3 +6,5 @@ python-dotenv==1.2.3
 SQLAlchemy==2.0.36
 pytest==8.3.4
 
+PyMuPDF==1.28.2
+markdown==3.10.3

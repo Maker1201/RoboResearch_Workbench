@@ -101,6 +101,7 @@ export type Task = {
   status: string;
   priority: string;
   due_date?: string | null;
+  due_time?: string | null;
   notes?: string | null;
 };
 
@@ -135,6 +136,10 @@ export type Paper = {
   pdf_error_code?: string | null;
   pdf_error_message?: string | null;
   zotero_synced_at?: string | null;
+  ai_summary?: string | null;
+  ai_relevance?: number | null;
+  ai_suggested_mode?: string | null;
+  ai_triaged_at?: string | null;
   related_project_id?: number | null;
 };
 
@@ -176,6 +181,9 @@ export type ReadingNote = {
   relevance_to_me?: string | null;
   extracted_knowledge?: string | null;
   idea?: string | null;
+  note_source?: string | null;
+  zotero_note_key?: string | null;
+  zotero_note_synced_at?: string | null;
   related_project_id?: number | null;
 };
 
@@ -266,6 +274,17 @@ export type SystemSettings = {
       api_key?: string | null;
       api_key_masked?: string | null;
       library: string;
+      data_dir?: string | null;
+    };
+    ai: {
+      provider: string;
+      api_base: string;
+      api_key?: string | null;
+      api_key_masked?: string | null;
+      model: string;
+      output_language: string;
+      research_interests: string;
+      max_pdf_chars: number;
     };
     github: {
       enabled: boolean;

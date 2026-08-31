@@ -86,6 +86,21 @@ export function SettingsPage({ t, settings, setSettings, setLang, setMessage }: 
             <PathInput label={t.defaultOwner} value={integrations.github.default_owner} onChange={(value) => update("integrations", { ...integrations, github: { ...integrations.github, default_owner: value } })} />
             <PathInput label={t.defaultBranch} value={integrations.github.default_branch} onChange={(value) => update("integrations", { ...integrations, github: { ...integrations.github, default_branch: value } })} />
           </IntegrationPanel>
+
+          <IntegrationPanel title={t.ai} enabled={integrations.ai.provider !== "none"} onEnabled={(enabled) => update("integrations", { ...integrations, ai: { ...integrations.ai, provider: enabled ? "openai-compatible" : "none" } })} onTest={() => void test("ai")} testLabel={t.test} enabledLabel={t.enabled}>
+            <PathInput label={t.aiApiBase} value={integrations.ai.api_base} onChange={(value) => update("integrations", { ...integrations, ai: { ...integrations.ai, api_base: value } })} />
+            <PathInput label={t.apiKey} value={integrations.ai.api_key ?? integrations.ai.api_key_masked ?? ""} onChange={(value) => update("integrations", { ...integrations, ai: { ...integrations.ai, api_key: value } })} password />
+            <PathInput label={t.aiModel} value={integrations.ai.model} onChange={(value) => update("integrations", { ...integrations, ai: { ...integrations.ai, model: value } })} />
+            <label className="field-label"><span>{t.aiOutputLanguage}</span>
+              <select value={integrations.ai.output_language} onChange={(event) => update("integrations", { ...integrations, ai: { ...integrations.ai, output_language: event.target.value } })}>
+                <option value="zh">中文</option>
+                <option value="en">English</option>
+              </select>
+            </label>
+            <PathInput label={t.aiResearchInterests} value={integrations.ai.research_interests} onChange={(value) => update("integrations", { ...integrations, ai: { ...integrations.ai, research_interests: value } })} />
+            <PathInput label={t.aiMaxPdfChars} value={String(integrations.ai.max_pdf_chars ?? 60000)} onChange={(value) => update("integrations", { ...integrations, ai: { ...integrations.ai, max_pdf_chars: Number(value.replace(/\D/g, "")) || 60000 } })} />
+            <PathInput label={t.aiZoteroDataDir} value={integrations.zotero.data_dir ?? ""} onChange={(value) => update("integrations", { ...integrations, zotero: { ...integrations.zotero, data_dir: value } })} />
+          </IntegrationPanel>
         </div>
         <button className="primary settings-save" onClick={() => void save()}><Check size={16} />{t.save}</button>
       </div>

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from .. import crud, git_service, models, project_progress_service, project_scanner_service, schemas
 from ..database import get_db
+from ..services import settings_service
 from ..services.projects_service import (
     create_default_stages,
     ensure_project_stages,
@@ -20,20 +21,42 @@ router = APIRouter()
 
 
 @router.get("/filesystem/directories")
-def list_directories(path: str | None = Query(default=None)) -> dict:
+def list_directories(path: str | None = Query(default=None), db: Session = Depends(get_db)) -> dict:
     try:
-        return project_scanner_service.list_directories(path)
+        start_path = path or settings_service.setting_value(db, "paths.projects_root") or str(Path.home())
+        return project_scanner_service.list_directories(start_path)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/projects/discover")
-def discover_projects() -> list[dict]:
+def discover_projects(db: Session = Depends(get_db)) -> list[dict]:
+    root = Path(settings_service.setting_value(db, "paths.projects_root") or "/home/robot").expanduser()
+    roots = [root]
+    projects_dir = root / "Projects"
+    if root.name != "Projects" and projects_dir.exists():
+        roots.append(projects_dir)
+
     discovered = []
-    for path in sorted(Path("/home/robot").iterdir()):
-        if path.is_dir() and not path.name.startswith(".") and (path / ".git").exists():
-            discovered.append({"name": path.name, "path": str(path), **git_service.status(str(path))})
+    seen: set[str] = set()
+    for path in _candidate_project_dirs(roots):
+        resolved = str(path.resolve())
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        discovered.append({"name": path.name, "path": resolved, **git_service.status(resolved)})
     return discovered
+
+
+def _candidate_project_dirs(roots: list[Path]):
+    for root in roots:
+        if not root.exists() or not root.is_dir():
+            continue
+        if not root.name.startswith(".") and (root / ".git").exists():
+            yield root
+        for path in sorted(root.iterdir(), key=lambda item: item.name.lower()):
+            if path.is_dir() and not path.name.startswith(".") and (path / ".git").exists():
+                yield path
 
 
 @router.get("/projects", response_model=list[schemas.ProjectOut])
@@ -136,6 +159,9 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, db: Session 
 
 @router.delete("/projects/{project_id}")
 def delete_project(project_id: int, db: Session = Depends(get_db)):
+    for model in [models.Paper, models.ReadingNote, models.ResearchIdea]:
+        db.query(model).filter(model.related_project_id == project_id).update({"related_project_id": None}, synchronize_session=False)
+    db.query(models.FocusSession).filter(models.FocusSession.project_id == project_id).update({"project_id": None}, synchronize_session=False)
     return crud.delete_item(db, models.Project, project_id)
 
 

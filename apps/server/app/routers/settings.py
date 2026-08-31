@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import httpx
@@ -8,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from .. import schemas
 from ..database import get_db
+from ..paper_integrations.ai_assistant import test_connection
 from ..paper_integrations.zotero import zotero_status
 from ..services import settings_service
 
@@ -79,4 +81,13 @@ async def test_integration(integration: str, payload: dict | None = None, db: Se
             return {"ok": False, "message": f"GitHub API 返回 {response.status_code}。"}
         login = response.json().get("login", "?")
         return {"ok": True, "message": f"GitHub Token 有效，当前用户：{login}。"}
+    if integration == "ai":
+        ai_draft = (payload.get("integrations") or {}).get("ai") or {}
+        stored = settings_service.get_settings(db, mask_secrets=False).get("integrations", {}).get("ai", {})
+        provider = ai_draft.get("provider") or stored.get("provider") or "none"
+        api_base = ai_draft.get("api_base") or stored.get("api_base") or os.getenv("AI_API_BASE")
+        api_key = ai_draft.get("api_key") or stored.get("api_key") or os.getenv("AI_API_KEY") or os.getenv("OPENAI_API_KEY")
+        model = ai_draft.get("model") or stored.get("model") or os.getenv("AI_MODEL")
+        ok, message = await test_connection(provider, api_base, api_key, model)
+        return {"ok": ok, "message": message}
     raise HTTPException(status_code=404, detail=f"Unknown integration: {integration}")

@@ -168,6 +168,7 @@ function fileToBase64(file: File): Promise<string> {
 }
 
 function zoteroSyncLabel(paper: Paper) {
+  if (paper.pdf_error_code === "ZOTERO_ITEM_DELETED" || paper.zotero_pdf_status === "ZOTERO_ITEM_DELETED") return "Zotero：条目已删除";
   if (!(paper.zotero_item_key || paper.zotero_key)) return "未同步 Zotero";
   if (paper.zotero_pdf_attached) return "Zotero：PDF 已挂载";
   const status = (paper.pdf_status || paper.zotero_pdf_status || "UNKNOWN").toUpperCase();
@@ -179,6 +180,7 @@ function zoteroSyncLabel(paper: Paper) {
     BROWSER_REQUIRED: "需要浏览器打开",
     AUTH_REQUIRED: "需要登录/机构权限",
     FAILED: "自动获取失败",
+    ZOTERO_ITEM_DELETED: "Zotero：条目已删除",
     UNKNOWN: "Zotero：等待同步",
   };
   return labels[status] || "Zotero：等待同步";

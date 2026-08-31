@@ -20,10 +20,12 @@ from ..paper_integrations.models import (
 )
 from ..paper_integrations.openalex import search_openalex
 from ..paper_integrations.translator import translate_papers
+from ..paper_integrations.ai_assistant import ai_configured, ai_settings, draft_reading_note, triage_papers
 from ..paper_integrations.zotero import (
     attach_pdf_to_zotero,
     auto_attach_pdf,
     build_existing_item_index,
+    ZoteroItemNotFound,
     get_zotero_item_sync_state,
     import_to_zotero,
     list_zotero_library,
@@ -37,16 +39,24 @@ from ..services.papers_service import (
     apply_zotero_sync_state_to_paper,
     db_paper_to_search_model,
     find_existing_paper,
+    mark_zotero_item_deleted,
     merge_search_papers,
     normalize_doi,
     normalize_paper_status,
     normalize_reading_mode,
     normalize_venue,
+    reading_note_template,
     search_paper_to_db_payload,
     title_year_key,
     upsert_paper,
 )
 from ..services.settings_service import setting_value
+from ..services.zotero_storage import (
+    ZoteroStorageError,
+    extract_pdf_text,
+    paper_pdf_text,
+    resolve_pdf_path,
+)
 
 router = APIRouter()
 
@@ -112,6 +122,133 @@ async def papers_import_zotero(request: ZoteroImportRequest) -> dict:
         return await import_to_zotero(request)
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _zotero_data_dir(db: Session) -> str | None:
+    return setting_value(db, "integrations.zotero.data_dir")
+
+
+@router.get("/papers/{paper_id}/pdf-text", response_model=schemas.PdfTextOut)
+def get_paper_pdf_text(paper_id: int, db: Session = Depends(get_db)):
+    """从 Zotero 本地存储读取该论文 PDF 的文本（截断），供调试与 AI 流程使用。"""
+    paper = crud.get_item(db, models.Paper, paper_id)
+    limit = ai_settings().max_pdf_chars
+    try:
+        path = resolve_pdf_path(paper, _zotero_data_dir(db))
+        text = extract_pdf_text(path, limit)
+    except ZoteroStorageError as exc:
+        raise HTTPException(status_code=409, detail=f"{exc.code}: {exc.message}") from exc
+    return {
+        "paper_id": paper.id,
+        "pdf_path": str(path),
+        "char_count": len(text),
+        "truncated": len(text) >= limit,
+        "text": text,
+    }
+
+
+@router.post("/papers/ai/triage", response_model=list[schemas.PaperOut])
+async def ai_triage_papers(payload: schemas.AITriageRequest | None = None, db: Session = Depends(get_db)):
+    """批量 AI 分诊：给阅读队列中的论文生成一句话总结、相关度与建议阅读方式。"""
+    if not ai_configured():
+        raise HTTPException(status_code=400, detail="AI 未配置：请在 apps/server/.env 中设置 AI_PROVIDER / AI_API_BASE / AI_API_KEY / AI_MODEL。")
+    query = db.query(models.Paper)
+    if payload and payload.paper_ids:
+        query = query.filter(models.Paper.id.in_(payload.paper_ids))
+    else:
+        query = query.filter(models.Paper.queued_at.is_not(None))
+    papers = query.limit(30).all()
+    if not papers:
+        return []
+    results = await triage_papers(papers)
+    if not results:
+        raise HTTPException(status_code=502, detail="AI 分诊请求失败：模型无有效返回，请检查 AI_API_BASE / AI_API_KEY / AI_MODEL 配置。")
+    by_id = {row["id"]: row for row in results}
+    now = datetime.utcnow()
+    updated: list[models.Paper] = []
+    for paper in papers:
+        row = by_id.get(paper.id)
+        if not row:
+            continue
+        paper.ai_summary = row["one_liner"]
+        paper.ai_relevance = row["relevance"]
+        paper.ai_suggested_mode = row["suggested_mode"]
+        paper.ai_triaged_at = now
+        updated.append(paper)
+    db.commit()
+    for paper in updated:
+        db.refresh(paper)
+    return updated
+
+
+def _note_section_text(note_markdown: str, heading: str) -> str | None:
+    """从模板笔记中取出某个小节的正文（到下一个 ## 标题为止）。"""
+    lines = note_markdown.splitlines()
+    collecting = False
+    buffer: list[str] = []
+    for line in lines:
+        if line.strip() == heading:
+            collecting = True
+            continue
+        if collecting and line.startswith("## "):
+            break
+        if collecting:
+            buffer.append(line)
+    text = "\n".join(buffer).strip()
+    return text or None
+
+
+@router.post("/papers/{paper_id}/ai/draft-note", response_model=schemas.AIDraftNoteResponse)
+async def ai_draft_paper_note(paper_id: int, db: Session = Depends(get_db)):
+    """AI 解析论文内容，按 12 节模板生成阅读笔记草稿。"""
+    if not ai_configured():
+        raise HTTPException(status_code=400, detail="AI 未配置：请在 apps/server/.env 中设置 AI_PROVIDER / AI_API_BASE / AI_API_KEY / AI_MODEL。")
+    paper = crud.get_item(db, models.Paper, paper_id)
+
+    pdf_text: str | None = None
+    try:
+        pdf_text = paper_pdf_text(paper, _zotero_data_dir(db), max_chars=ai_settings().max_pdf_chars)
+    except ZoteroStorageError:
+        pdf_text = None
+
+    draft = await draft_reading_note(paper, pdf_text)
+    if draft:
+        note_source = "ai_draft"
+    else:
+        draft = reading_note_template(paper)
+        note_source = "template"
+
+    existing = db.query(models.ReadingNote).filter(models.ReadingNote.paper_id == paper_id).order_by(models.ReadingNote.updated_at.desc()).first()
+    template = reading_note_template(paper)
+    manual_content = (existing.content_markdown or existing.content or "").strip() if existing else ""
+    if existing and not (existing.note_source in {"ai_draft", "template"} or manual_content in {"", template}):
+        item = models.ReadingNote(
+            paper_id=paper.id,
+            title=f"Reading Note - {paper.title[:220]}",
+            status="draft",
+            reading_status_snapshot=paper.status,
+            reading_mode=paper.reading_mode,
+            related_project_id=paper.related_project_id,
+        )
+        db.add(item)
+    else:
+        item = existing or models.ReadingNote(
+            paper_id=paper.id,
+            title=f"Reading Note - {paper.title[:220]}",
+            status="draft",
+            reading_status_snapshot=paper.status,
+            reading_mode=paper.reading_mode,
+            related_project_id=paper.related_project_id,
+        )
+    item.content_markdown = draft
+    item.content = draft
+    item.note_source = note_source
+    item.one_sentence_summary = _note_section_text(draft, "## 2. One Sentence Summary") or item.one_sentence_summary
+    if item.id is None:
+        db.add(item)
+    db.commit()
+    db.refresh(item)
+    return {"paper_id": paper.id, "note": item, "source": note_source}
 
 
 @router.post("/papers/attach-pdf")
@@ -281,6 +418,11 @@ async def check_paper_zotero_attachment(paper_id: int, db: Session = Depends(get
         return paper
     try:
         state = await get_zotero_item_sync_state(item_key)
+    except ZoteroItemNotFound:
+        mark_zotero_item_deleted(paper, item_key)
+        db.commit()
+        db.refresh(paper)
+        return paper
     except Exception as exc:
         apply_pdf_state(
             paper,
@@ -418,6 +560,7 @@ def paper_open_links(paper_id: int, db: Session = Depends(get_db)) -> dict:
 async def sync_zotero_papers(db: Session = Depends(get_db)) -> dict:
     papers = db.query(models.Paper).filter(or_(models.Paper.zotero_item_key.is_not(None), models.Paper.zotero_key.is_not(None))).all()
     synced = 0
+    deleted = 0
     failed: list[dict[str, str]] = []
     for paper in papers:
         item_key = paper.zotero_item_key or paper.zotero_key
@@ -425,6 +568,11 @@ async def sync_zotero_papers(db: Session = Depends(get_db)) -> dict:
             continue
         try:
             state = await get_zotero_item_sync_state(item_key)
+        except ZoteroItemNotFound:
+            mark_zotero_item_deleted(paper, item_key)
+            synced += 1
+            deleted += 1
+            continue
         except Exception as exc:
             failed.append({"item_key": item_key, "title": paper.title, "error": str(exc)})
             continue
@@ -446,7 +594,10 @@ async def sync_zotero_papers(db: Session = Depends(get_db)) -> dict:
             paper.venue = normalize_venue(state["venue"])
         synced += 1
     db.commit()
-    return {"status": "ok", "synced": synced, "failed": failed, "message": f"已同步 Zotero：{synced} 篇文献。"}
+    message = f"已同步 Zotero：{synced} 篇文献。"
+    if deleted:
+        message += f" 其中 {deleted} 篇已解除不存在的 Zotero 条目关联。"
+    return {"status": "ok", "synced": synced, "deleted": deleted, "failed": failed, "message": message}
 
 
 @router.post("/zotero/pull")

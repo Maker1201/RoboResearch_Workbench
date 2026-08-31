@@ -94,6 +94,7 @@ class Task(Base, TimestampMixin):
     status: Mapped[str] = mapped_column(String(40), default="todo")
     priority: Mapped[str] = mapped_column(String(40), default="medium")
     due_date: Mapped[str | None] = mapped_column(String(40))
+    due_time: Mapped[str | None] = mapped_column(String(8))
     notes: Mapped[str | None] = mapped_column(Text)
 
     project: Mapped[Project | None] = relationship(back_populates="tasks")
@@ -148,6 +149,10 @@ class Paper(Base, TimestampMixin):
     pdf_error_code: Mapped[str | None] = mapped_column(String(120))
     pdf_error_message: Mapped[str | None] = mapped_column(String(500))
     zotero_synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    ai_summary: Mapped[str | None] = mapped_column(Text)
+    ai_relevance: Mapped[float | None] = mapped_column(Float)
+    ai_suggested_mode: Mapped[str | None] = mapped_column(String(40))
+    ai_triaged_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     related_project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), nullable=True)
 
     reading_notes: Mapped[list["ReadingNote"]] = relationship(back_populates="paper", cascade="all, delete-orphan")
@@ -170,6 +175,9 @@ class ReadingNote(Base, TimestampMixin):
     relevance_to_me: Mapped[str | None] = mapped_column(Text)
     extracted_knowledge: Mapped[str | None] = mapped_column(Text)
     idea: Mapped[str | None] = mapped_column(Text)
+    note_source: Mapped[str] = mapped_column(String(40), default="manual")
+    zotero_note_key: Mapped[str | None] = mapped_column(String(80), index=True)
+    zotero_note_synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     related_project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), nullable=True)
 
     paper: Mapped[Paper | None] = relationship(back_populates="reading_notes")

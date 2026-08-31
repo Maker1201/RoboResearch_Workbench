@@ -129,6 +129,7 @@ class TaskBase(BaseModel):
     status: str = "todo"
     priority: str = "medium"
     due_date: str | None = None
+    due_time: str | None = None
     notes: str | None = None
 
 
@@ -143,6 +144,7 @@ class TaskUpdate(BaseModel):
     status: str | None = None
     priority: str | None = None
     due_date: str | None = None
+    due_time: str | None = None
     notes: str | None = None
 
 
@@ -182,6 +184,10 @@ class PaperBase(BaseModel):
     pdf_error_code: str | None = None
     pdf_error_message: str | None = None
     zotero_synced_at: datetime | None = None
+    ai_summary: str | None = None
+    ai_relevance: float | None = None
+    ai_suggested_mode: str | None = None
+    ai_triaged_at: datetime | None = None
     related_project_id: int | None = None
 
 
@@ -219,6 +225,10 @@ class PaperUpdate(BaseModel):
     pdf_error_code: str | None = None
     pdf_error_message: str | None = None
     zotero_synced_at: datetime | None = None
+    ai_summary: str | None = None
+    ai_relevance: float | None = None
+    ai_suggested_mode: str | None = None
+    ai_triaged_at: datetime | None = None
     related_project_id: int | None = None
 
 
@@ -240,6 +250,9 @@ class ReadingNoteBase(BaseModel):
     relevance_to_me: str | None = None
     extracted_knowledge: str | None = None
     idea: str | None = None
+    note_source: str = "manual"
+    zotero_note_key: str | None = None
+    zotero_note_synced_at: datetime | None = None
     related_project_id: int | None = None
 
 
@@ -259,6 +272,9 @@ class ReadingNoteUpdate(BaseModel):
     relevance_to_me: str | None = None
     extracted_knowledge: str | None = None
     idea: str | None = None
+    note_source: str | None = None
+    zotero_note_key: str | None = None
+    zotero_note_synced_at: datetime | None = None
     related_project_id: int | None = None
 
 
@@ -275,6 +291,24 @@ class PaperQueueRequest(BaseModel):
     reading_purpose: str = "General Interest"
     related_project_id: int | None = None
     reading_mode: str | None = None
+
+
+class AITriageRequest(BaseModel):
+    paper_ids: list[int] | None = None
+
+
+class AIDraftNoteResponse(BaseModel):
+    paper_id: int
+    note: ReadingNoteOut
+    source: str
+
+
+class PdfTextOut(BaseModel):
+    paper_id: int
+    pdf_path: str
+    char_count: int
+    truncated: bool
+    text: str
 
 
 class PaperLibraryImportRequest(BaseModel):

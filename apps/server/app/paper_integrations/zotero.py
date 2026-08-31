@@ -60,6 +60,12 @@ def _persist_key(key: str) -> None:
             pass
 
 
+class ZoteroItemNotFound(RuntimeError):
+    def __init__(self, item_key: str):
+        super().__init__(f"Zotero item {item_key} was not found.")
+        self.item_key = item_key
+
+
 _cookie_loader: Callable[[str], str | None] | None = None
 _cookie_all_loader: Callable[[], dict[str, str]] | None = None
 _cookie_saver: Callable[[str, str], None] | None = None
@@ -672,6 +678,8 @@ async def get_zotero_item_sync_state(item_key: str) -> dict[str, Any]:
         server_id = await _get_server_id(client)
         api_key = await _ensure_api_key(client, server_id)
         response = await client.get(f"{ZOTERO_BASE_URL}/users/0/items/{item_key}", headers=_auth_headers(server_id, api_key))
+        if response.status_code in {404, 410}:
+            raise ZoteroItemNotFound(item_key)
         response.raise_for_status()
         item_payload = response.json()
         data = item_payload.get("data", item_payload)
@@ -1260,3 +1268,85 @@ def _absolute_zotero_url(url: str) -> str:
 
 def _zotero_timestamp() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+async def create_child_note(parent_item_key: str, note_html: str, tags: list[str] | None = None) -> dict:
+    """在 Zotero 条目下创建子笔记，返回 {"key", "version"}。"""
+    payload = [{
+        "itemType": "note",
+        "parentItem": parent_item_key,
+        "note": note_html,
+        "tags": [{"tag": tag} for tag in (tags or [])],
+    }]
+    async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+        server_id = await _get_server_id(client)
+        api_key = await _ensure_api_key(client, server_id)
+        response = await client.post(
+            f"{ZOTERO_BASE_URL}/users/0/items",
+            headers=_json_write_headers(server_id, api_key),
+            json=payload,
+        )
+        if response.status_code == 401:
+            global _zotero_key
+            _zotero_key = None
+            raise RuntimeError("Zotero 授权已失效，请重新授权后再同步笔记。")
+        response.raise_for_status()
+        data = response.json()
+    key = _first_successful_key(data)
+    if not key:
+        raise RuntimeError("Zotero 子笔记创建失败。")
+    successful = data.get("successful", {})
+    version = 0
+    for value in successful.values():
+        if (value.get("key") or value.get("data", {}).get("key")) == key:
+            version = int(value.get("version") or value.get("data", {}).get("version") or 0)
+            break
+    return {"key": key, "version": version}
+
+
+async def update_child_note(note_key: str, version: int, note_html: str, tags: list[str] | None = None) -> dict:
+    """更新已有子笔记；version 用于并发保护，返回新的 {"key", "version"}。"""
+    async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+        server_id = await _get_server_id(client)
+        api_key = await _ensure_api_key(client, server_id)
+        response = await client.patch(
+            f"{ZOTERO_BASE_URL}/users/0/items/{note_key}",
+            headers={
+                **_json_write_headers(server_id, api_key),
+                "If-Unmodified-Since-Version": str(version),
+            },
+            json={
+                "note": note_html,
+                "tags": [{"tag": tag} for tag in (tags or [])],
+            },
+        )
+        if response.status_code == 401:
+            raise RuntimeError("Zotero 授权已失效，请重新授权后再同步笔记。")
+        if response.status_code == 412:
+            raise RuntimeError("Zotero 中的笔记已被其他端修改，请稍后重试同步。")
+        response.raise_for_status()
+        body = response.json() if response.content else {}
+    new_version = int(body.get("version") or body.get("data", {}).get("version") or version + 1)
+    return {"key": note_key, "version": new_version}
+
+
+async def get_child_notes(item_key: str) -> list[dict]:
+    """列出条目下的子笔记：[{"key", "version", "note"}]。"""
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+        server_id = await _get_server_id(client)
+        api_key = await _ensure_api_key(client, server_id)
+        response = await client.get(
+            f"{ZOTERO_BASE_URL}/users/0/items/{item_key}/children?itemType=note&limit=100",
+            headers=_auth_headers(server_id, api_key),
+        )
+        response.raise_for_status()
+        items = response.json()
+    return [
+        {
+            "key": item.get("key"),
+            "version": int(item.get("version") or 0),
+            "note": item.get("data", {}).get("note", ""),
+        }
+        for item in items
+        if item.get("data", {}).get("itemType") == "note"
+    ]

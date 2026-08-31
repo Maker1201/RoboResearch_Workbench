@@ -20,6 +20,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "github": {"enabled": False, "username": "", "token": "", "personal_access_token": "", "default_owner": "", "default_branch": "main"},
         "obsidian": {"enabled": False, "vault_path": "", "knowledge_root": "Knowledge", "use_obsidian_uri": True},
         "zotero": {"enabled": False, "connection_mode": "web_api", "user_id": "", "api_key": "", "library": "My Library"},
+        "ai": {"provider": "none", "api_base": "", "api_key": "", "model": "", "output_language": "zh", "research_interests": "", "max_pdf_chars": 60000},
     },
 }
 
@@ -38,6 +39,13 @@ DEFAULT_FLAT_SETTINGS: dict[str, str] = {
     "integrations.zotero.connection_mode": "web_api",
     "integrations.zotero.user_id": "",
     "integrations.zotero.library": "My Library",
+    "integrations.zotero.data_dir": "",
+    "integrations.ai.provider": "none",
+    "integrations.ai.api_base": "",
+    "integrations.ai.model": "",
+    "integrations.ai.output_language": "zh",
+    "integrations.ai.research_interests": "",
+    "integrations.ai.max_pdf_chars": "60000",
     "integrations.github.enabled": "false",
     "integrations.github.username": "",
     "integrations.github.default_owner": "",
@@ -48,6 +56,7 @@ SECRET_KEYS = {
     "integrations.zotero.api_key",
     "integrations.github.token",
     "integrations.github.personal_access_token",
+    "integrations.ai.api_key",
 }
 
 
@@ -65,6 +74,7 @@ def get_settings(db: Session, mask_secrets: bool = True) -> dict[str, Any]:
         _mask(settings, ["integrations", "github", "token"])
         _mask(settings, ["integrations", "github", "personal_access_token"])
         _mask(settings, ["integrations", "zotero", "api_key"])
+        _mask(settings, ["integrations", "ai", "api_key"])
     return settings
 
 
@@ -192,6 +202,17 @@ def build_settings_payload(db: Session) -> dict[str, Any]:
                 "api_key": None,
                 "api_key_masked": mask_secret(zotero_key),
                 "library": setting_value(db, "integrations.zotero.library"),
+                "data_dir": setting_value(db, "integrations.zotero.data_dir"),
+            },
+            "ai": {
+                "provider": setting_value(db, "integrations.ai.provider"),
+                "api_base": setting_value(db, "integrations.ai.api_base"),
+                "api_key": None,
+                "api_key_masked": mask_secret(secret_value(db, "integrations.ai.api_key")),
+                "model": setting_value(db, "integrations.ai.model"),
+                "output_language": setting_value(db, "integrations.ai.output_language"),
+                "research_interests": setting_value(db, "integrations.ai.research_interests"),
+                "max_pdf_chars": int(setting_value(db, "integrations.ai.max_pdf_chars") or 60000),
             },
             "github": {
                 "enabled": parse_bool(setting_value(db, "integrations.github.enabled")),
@@ -220,12 +241,19 @@ def store_settings_payload(db: Session, payload: dict[str, Any]) -> dict[str, An
         if key in obsidian:
             put_setting(db, f"integrations.obsidian.{key}", bool_to_setting(bool(obsidian[key])))
     zotero = integrations.get("zotero") or {}
-    for key in ["connection_mode", "user_id", "library"]:
+    for key in ["connection_mode", "user_id", "library", "data_dir"]:
         if key in zotero:
             put_setting(db, f"integrations.zotero.{key}", str(zotero[key]))
     if "enabled" in zotero:
         put_setting(db, "integrations.zotero.enabled", bool_to_setting(bool(zotero["enabled"])))
     put_secret(db, "integrations.zotero.api_key", zotero.get("api_key"))
+    ai = integrations.get("ai") or {}
+    for key in ["provider", "api_base", "model", "output_language", "research_interests"]:
+        if key in ai:
+            put_setting(db, f"integrations.ai.{key}", str(ai[key]))
+    if "max_pdf_chars" in ai:
+        put_setting(db, "integrations.ai.max_pdf_chars", str(int(ai["max_pdf_chars"] or 60000)))
+    put_secret(db, "integrations.ai.api_key", ai.get("api_key"))
     github = integrations.get("github") or {}
     for key in ["username", "default_owner", "default_branch"]:
         if key in github:
