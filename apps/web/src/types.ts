@@ -202,6 +202,209 @@ export type Experiment = {
   conclusion?: string | null;
 };
 
+
+export type RobotProfile = {
+  id: number;
+  name: string;
+  robot_type?: string | null;
+  arms?: string | null;
+  sensors?: string | null;
+  compute?: string | null;
+  ros_version?: string | null;
+  moveit_version?: string | null;
+  notes?: string | null;
+};
+
+export type TaskProfile = {
+  id?: number;
+  study_id?: number;
+  task_name?: string | null;
+  instruction?: string | null;
+  initial_state?: string | null;
+  goal_state?: string | null;
+  constraints?: string | null;
+  success_criteria?: string | null;
+  task_steps?: string | null;
+  task_complexity?: string | null;
+  scene_complexity?: string | null;
+  object_count?: number | null;
+  perception_uncertainty?: string | null;
+  execution_uncertainty?: string | null;
+  position_error_threshold?: string | null;
+  orientation_error_threshold?: string | null;
+  no_collision_required?: boolean;
+  timeout_required?: boolean;
+  human_intervention_allowed?: boolean;
+};
+
+export type ExperimentProtocol = {
+  id?: number;
+  study_id?: number;
+  trials_per_condition?: number | null;
+  random_seeds?: string | null;
+  seed_strategy?: string | null;
+  timeout_seconds?: number | null;
+  max_retries?: number | null;
+  human_intervention_allowed?: boolean;
+  reset_policy?: string | null;
+  task_repetitions?: number | null;
+  scene_count?: number | null;
+  object_reset_policy?: string | null;
+};
+
+export type ExperimentStudy = {
+  id: number;
+  study_code: string;
+  name: string;
+  project_id?: number | null;
+  robot_profile_id?: number | null;
+  status: string;
+  current_stage?: string | null;
+  task_type: string;
+  environment?: string | null;
+  research_question?: string | null;
+  hypothesis?: string | null;
+  claim?: string | null;
+  conclusion_status: string;
+  hypothesis_status: string;
+  evidence_summary?: string | null;
+  key_metric_improvements?: string | null;
+  next_step?: string | null;
+  analysis_key_findings?: string | null;
+  analysis_unexpected_findings?: string | null;
+  analysis_failure_summary?: string | null;
+  analysis_why_worked?: string | null;
+  analysis_why_failed?: string | null;
+  analysis_limitations?: string | null;
+  analysis_threats_to_validity?: string | null;
+  conditions_count?: number;
+  trials_count?: number;
+  primary_metric?: string | null;
+  project_name?: string | null;
+  robot_name?: string | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type ExperimentCondition = {
+  id: number;
+  study_id: number;
+  ablation_group_id?: number | null;
+  name: string;
+  condition_type: string;
+  description?: string | null;
+  enabled_components?: string | null;
+  disabled_components?: string | null;
+  project_id?: number | null;
+  git_commit_hash?: string | null;
+  git_branch?: string | null;
+  git_dirty?: boolean;
+  config_path?: string | null;
+  prompt_version?: string | null;
+  prompt_path?: string | null;
+  model_name?: string | null;
+  model_version?: string | null;
+  llm?: string | null;
+  retry_policy?: string | null;
+  timeout_seconds?: number | null;
+  simulator?: string | null;
+  ros_version?: string | null;
+  moveit_version?: string | null;
+  generalization_dimension?: string | null;
+  seen_unseen?: string | null;
+  trials_count?: number;
+  success_rate?: number | null;
+};
+
+export type ExperimentTrial = {
+  id: number;
+  condition_id: number;
+  trial_id: string;
+  scene?: string | null;
+  seed?: number | null;
+  start_time?: string | null;
+  end_time?: string | null;
+  duration_seconds?: number | null;
+  result: string;
+  steps?: number | null;
+  plan_length?: number | null;
+  replan_count?: number | null;
+  human_intervention?: boolean;
+  failure_category?: string | null;
+  failure_layer?: string | null;
+  note?: string | null;
+};
+
+export type MetricValue = {
+  id: number;
+  study_id?: number | null;
+  condition_id?: number | null;
+  trial_id?: number | null;
+  metric_key: string;
+  value?: number | null;
+  value_text?: string | null;
+  mean?: number | null;
+  std?: number | null;
+  count?: number | null;
+  p_value?: number | null;
+  effect_size?: string | null;
+  confidence_interval?: string | null;
+  statistical_test?: string | null;
+  is_primary?: boolean;
+};
+
+export type PlanningTraceEvent = {
+  id: number;
+  trial_id: number;
+  event_type: string;
+  title?: string | null;
+  content?: string | null;
+  order_index: number;
+  timestamp?: string | null;
+};
+
+export type ArtifactReference = {
+  id: number;
+  study_id?: number | null;
+  condition_id?: number | null;
+  trial_id?: number | null;
+  artifact_type: string;
+  path: string;
+  size?: number | null;
+  description?: string | null;
+};
+
+export type AblationGroup = {
+  id: number;
+  study_id: number;
+  name: string;
+  description?: string | null;
+};
+
+export type ExperimentStudyDetail = {
+  study: ExperimentStudy;
+  task_profile?: TaskProfile | null;
+  protocol?: ExperimentProtocol | null;
+  robot_profile?: RobotProfile | null;
+  conditions: ExperimentCondition[];
+  trials: ExperimentTrial[];
+  metrics: MetricValue[];
+  trace_events: PlanningTraceEvent[];
+  artifacts: ArtifactReference[];
+  ablation_groups: AblationGroup[];
+  failure_summary: Record<string, number>;
+  result_summary: Record<string, { trials: number; success: number; failed: number; aborted: number }>;
+};
+
+export type MetricTemplate = {
+  key: string;
+  name: string;
+  name_zh?: string | null;
+  group: string;
+  unit?: string | null;
+  higher_is_better?: boolean;
+};
+
 export type KnowledgeLink = {
   id: number;
   title: string;

@@ -38,7 +38,7 @@ def summary(db: Session = Depends(get_db)) -> dict:
         "tasks_done": tasks_done,
         "papers": db.query(models.Paper).count(),
         "reading_notes": db.query(models.ReadingNote).count(),
-        "experiments": db.query(models.Experiment).count(),
+        "experiments": db.query(models.Experiment).count() + db.query(models.ExperimentStudy).count(),
         "knowledge_links": db.query(models.KnowledgeLink).count(),
         "papers_by_venue": {venue: count for venue, count in paper_counts},
     }

@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import bootstrap
-from .routers import git, papers, projects, reading_notes, settings, system, tasks, workspace
+from .routers import experiments, git, papers, projects, reading_notes, settings, system, tasks, workspace
 
 
 @asynccontextmanager
@@ -32,6 +32,7 @@ for router in (
     projects.router,
     git.router,
     tasks.router,
+    experiments.router,
     papers.router,
     reading_notes.router,
     workspace.router,

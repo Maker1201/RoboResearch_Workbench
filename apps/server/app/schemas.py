@@ -374,6 +374,369 @@ class ExperimentOut(ExperimentBase, ORMModel):
     updated_at: datetime
 
 
+
+class RobotProfileBase(BaseModel):
+    name: str
+    robot_type: str | None = None
+    arms: str | None = None
+    sensors: str | None = None
+    compute: str | None = None
+    ros_version: str | None = None
+    moveit_version: str | None = None
+    notes: str | None = None
+
+
+class RobotProfileCreate(RobotProfileBase):
+    pass
+
+
+class RobotProfileUpdate(BaseModel):
+    name: str | None = None
+    robot_type: str | None = None
+    arms: str | None = None
+    sensors: str | None = None
+    compute: str | None = None
+    ros_version: str | None = None
+    moveit_version: str | None = None
+    notes: str | None = None
+
+
+class RobotProfileOut(RobotProfileBase, ORMModel):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class TaskProfileBase(BaseModel):
+    task_name: str | None = None
+    instruction: str | None = None
+    initial_state: str | None = None
+    goal_state: str | None = None
+    constraints: str | None = None
+    success_criteria: str | None = None
+    task_steps: str | None = None
+    task_complexity: str | None = None
+    scene_complexity: str | None = None
+    object_count: int | None = None
+    perception_uncertainty: str | None = None
+    execution_uncertainty: str | None = None
+    position_error_threshold: str | None = None
+    orientation_error_threshold: str | None = None
+    no_collision_required: bool = True
+    timeout_required: bool = True
+    human_intervention_allowed: bool = False
+
+
+class TaskProfileUpdate(TaskProfileBase):
+    pass
+
+
+class TaskProfileOut(TaskProfileBase, ORMModel):
+    id: int
+    study_id: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class ExperimentProtocolBase(BaseModel):
+    trials_per_condition: int | None = None
+    random_seeds: str | None = None
+    seed_strategy: str | None = None
+    timeout_seconds: int | None = None
+    max_retries: int | None = None
+    human_intervention_allowed: bool = False
+    reset_policy: str | None = None
+    task_repetitions: int | None = None
+    scene_count: int | None = None
+    object_reset_policy: str | None = None
+
+
+class ExperimentProtocolUpdate(ExperimentProtocolBase):
+    pass
+
+
+class ExperimentProtocolOut(ExperimentProtocolBase, ORMModel):
+    id: int
+    study_id: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class ExperimentStudyBase(BaseModel):
+    study_code: str
+    name: str
+    project_id: int | None = None
+    robot_profile_id: int | None = None
+    status: str = "Planning"
+    current_stage: str | None = None
+    task_type: str = "Robot Task Planning"
+    environment: str | None = None
+    research_question: str | None = None
+    hypothesis: str | None = None
+    claim: str | None = None
+    conclusion_status: str = "Inconclusive"
+    hypothesis_status: str = "Inconclusive"
+    evidence_summary: str | None = None
+    key_metric_improvements: str | None = None
+    next_step: str | None = None
+    analysis_key_findings: str | None = None
+    analysis_unexpected_findings: str | None = None
+    analysis_failure_summary: str | None = None
+    analysis_why_worked: str | None = None
+    analysis_why_failed: str | None = None
+    analysis_limitations: str | None = None
+    analysis_threats_to_validity: str | None = None
+
+
+class ExperimentStudyCreate(ExperimentStudyBase):
+    task_profile: TaskProfileBase | None = None
+    protocol: ExperimentProtocolBase | None = None
+
+
+class ExperimentStudyUpdate(BaseModel):
+    study_code: str | None = None
+    name: str | None = None
+    project_id: int | None = None
+    robot_profile_id: int | None = None
+    status: str | None = None
+    current_stage: str | None = None
+    task_type: str | None = None
+    environment: str | None = None
+    research_question: str | None = None
+    hypothesis: str | None = None
+    claim: str | None = None
+    conclusion_status: str | None = None
+    hypothesis_status: str | None = None
+    evidence_summary: str | None = None
+    key_metric_improvements: str | None = None
+    next_step: str | None = None
+    analysis_key_findings: str | None = None
+    analysis_unexpected_findings: str | None = None
+    analysis_failure_summary: str | None = None
+    analysis_why_worked: str | None = None
+    analysis_why_failed: str | None = None
+    analysis_limitations: str | None = None
+    analysis_threats_to_validity: str | None = None
+
+
+class ExperimentStudyOut(ExperimentStudyBase, ORMModel):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+    conditions_count: int = 0
+    trials_count: int = 0
+    primary_metric: str | None = None
+    project_name: str | None = None
+    robot_name: str | None = None
+
+
+class ExperimentConditionBase(BaseModel):
+    study_id: int
+    ablation_group_id: int | None = None
+    name: str
+    condition_type: str = "Baseline"
+    description: str | None = None
+    enabled_components: str | None = None
+    disabled_components: str | None = None
+    project_id: int | None = None
+    git_commit_hash: str | None = None
+    git_branch: str | None = None
+    git_dirty: bool = False
+    config_path: str | None = None
+    prompt_version: str | None = None
+    prompt_path: str | None = None
+    model_name: str | None = None
+    model_version: str | None = None
+    llm: str | None = None
+    retry_policy: str | None = None
+    timeout_seconds: int | None = None
+    simulator: str | None = None
+    ros_version: str | None = None
+    moveit_version: str | None = None
+    generalization_dimension: str | None = None
+    seen_unseen: str | None = None
+
+
+class ExperimentConditionCreate(ExperimentConditionBase):
+    pass
+
+
+class ExperimentConditionUpdate(BaseModel):
+    ablation_group_id: int | None = None
+    name: str | None = None
+    condition_type: str | None = None
+    description: str | None = None
+    enabled_components: str | None = None
+    disabled_components: str | None = None
+    project_id: int | None = None
+    git_commit_hash: str | None = None
+    git_branch: str | None = None
+    git_dirty: bool | None = None
+    config_path: str | None = None
+    prompt_version: str | None = None
+    prompt_path: str | None = None
+    model_name: str | None = None
+    model_version: str | None = None
+    llm: str | None = None
+    retry_policy: str | None = None
+    timeout_seconds: int | None = None
+    simulator: str | None = None
+    ros_version: str | None = None
+    moveit_version: str | None = None
+    generalization_dimension: str | None = None
+    seen_unseen: str | None = None
+
+
+class ExperimentConditionOut(ExperimentConditionBase, ORMModel):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+    trials_count: int = 0
+    success_rate: float | None = None
+
+
+class ExperimentTrialBase(BaseModel):
+    condition_id: int
+    trial_id: str
+    scene: str | None = None
+    seed: int | None = None
+    start_time: datetime | None = None
+    end_time: datetime | None = None
+    duration_seconds: float | None = None
+    result: str = "Success"
+    steps: int | None = None
+    plan_length: int | None = None
+    replan_count: int | None = 0
+    human_intervention: bool = False
+    failure_category: str | None = None
+    failure_layer: str | None = None
+    note: str | None = None
+
+
+class ExperimentTrialCreate(ExperimentTrialBase):
+    pass
+
+
+class ExperimentTrialUpdate(BaseModel):
+    trial_id: str | None = None
+    scene: str | None = None
+    seed: int | None = None
+    start_time: datetime | None = None
+    end_time: datetime | None = None
+    duration_seconds: float | None = None
+    result: str | None = None
+    steps: int | None = None
+    plan_length: int | None = None
+    replan_count: int | None = None
+    human_intervention: bool | None = None
+    failure_category: str | None = None
+    failure_layer: str | None = None
+    note: str | None = None
+
+
+class ExperimentTrialOut(ExperimentTrialBase, ORMModel):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class MetricValueBase(BaseModel):
+    study_id: int | None = None
+    condition_id: int | None = None
+    trial_id: int | None = None
+    metric_key: str
+    value: float | None = None
+    value_text: str | None = None
+    mean: float | None = None
+    std: float | None = None
+    count: int | None = None
+    p_value: float | None = None
+    effect_size: str | None = None
+    confidence_interval: str | None = None
+    statistical_test: str | None = None
+    is_primary: bool = False
+
+
+class MetricValueCreate(MetricValueBase):
+    pass
+
+
+class MetricValueOut(MetricValueBase, ORMModel):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class PlanningTraceEventBase(BaseModel):
+    trial_id: int
+    event_type: str
+    title: str | None = None
+    content: str | None = None
+    order_index: int = 0
+    timestamp: datetime | None = None
+
+
+class PlanningTraceEventCreate(PlanningTraceEventBase):
+    pass
+
+
+class PlanningTraceEventOut(PlanningTraceEventBase, ORMModel):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class ArtifactReferenceBase(BaseModel):
+    study_id: int | None = None
+    condition_id: int | None = None
+    trial_id: int | None = None
+    artifact_type: str = "log"
+    path: str
+    size: int | None = None
+    description: str | None = None
+
+
+class ArtifactReferenceCreate(ArtifactReferenceBase):
+    pass
+
+
+class ArtifactReferenceOut(ArtifactReferenceBase, ORMModel):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class AblationGroupBase(BaseModel):
+    study_id: int
+    name: str
+    description: str | None = None
+
+
+class AblationGroupCreate(AblationGroupBase):
+    pass
+
+
+class AblationGroupOut(AblationGroupBase, ORMModel):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class ExperimentStudyDetailOut(BaseModel):
+    study: ExperimentStudyOut
+    task_profile: TaskProfileOut | None = None
+    protocol: ExperimentProtocolOut | None = None
+    robot_profile: RobotProfileOut | None = None
+    conditions: list[ExperimentConditionOut] = []
+    trials: list[ExperimentTrialOut] = []
+    metrics: list[MetricValueOut] = []
+    trace_events: list[PlanningTraceEventOut] = []
+    artifacts: list[ArtifactReferenceOut] = []
+    ablation_groups: list[AblationGroupOut] = []
+    failure_summary: dict[str, int] = {}
+    result_summary: dict[str, Any] = {}
+
+
 class ProjectCheckpointBase(BaseModel):
     project_id: int
     name: str

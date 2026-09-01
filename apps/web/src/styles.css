@@ -2982,3 +2982,120 @@ pre {
   border-radius: 999px;
   padding: 2px 10px;
 }
+
+
+.experiment-workbench {
+  display: grid;
+  grid-template-columns: minmax(300px, 390px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: stretch;
+}
+
+.experiment-sidebar {
+  align-self: stretch;
+  height: 100%;
+  overflow: visible;
+}
+
+.experiment-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.experiment-main {
+  display: grid;
+  gap: 14px;
+}
+
+.experiment-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(300px, .9fr);
+  gap: 16px;
+  align-items: start;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(120, 233, 255, .16);
+}
+
+.experiment-kpis {
+  margin-bottom: 0;
+}
+
+.experiment-section-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(260px, .9fr);
+  gap: 14px;
+}
+
+.experiment-section {
+  display: grid;
+  gap: 12px;
+}
+
+.experiment-section h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 0;
+}
+
+.two-col {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.full-field {
+  grid-column: 1 / -1;
+}
+
+.text-fields textarea {
+  min-height: 130px;
+}
+
+.condition-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.trial-table {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.compact-table .row,
+.trial-row {
+  grid-template-columns: 90px 1fr 1fr 1fr;
+}
+
+.trace-editor {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(120, 233, 255, .16);
+}
+
+.trace-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.notice {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+@media (max-width: 1180px) {
+  .experiment-workbench,
+  .experiment-hero,
+  .experiment-section-grid,
+  .two-col {
+    grid-template-columns: 1fr;
+  }
+
+  .experiment-sidebar {
+    height: auto;
+  }
+}

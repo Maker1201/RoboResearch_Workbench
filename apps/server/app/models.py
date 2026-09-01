@@ -48,6 +48,7 @@ class Project(Base, TimestampMixin):
     milestones: Mapped[list["Milestone"]] = relationship(back_populates="project", cascade="all, delete-orphan")
     tasks: Mapped[list["Task"]] = relationship(back_populates="project", cascade="all, delete-orphan")
     experiments: Mapped[list["Experiment"]] = relationship(back_populates="project", cascade="all, delete-orphan")
+    experiment_studies: Mapped[list["ExperimentStudy"]] = relationship(back_populates="project", cascade="all, delete-orphan")
     checkpoints: Mapped[list["ProjectCheckpoint"]] = relationship(back_populates="project", cascade="all, delete-orphan")
     progress_logs: Mapped[list["ProjectProgressLog"]] = relationship(back_populates="project", cascade="all, delete-orphan")
 
@@ -214,6 +215,242 @@ class Experiment(Base, TimestampMixin):
     conclusion: Mapped[str | None] = mapped_column(Text)
 
     project: Mapped[Project | None] = relationship(back_populates="experiments")
+
+
+class RobotProfile(Base, TimestampMixin):
+    __tablename__ = "robot_profiles"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(240), index=True)
+    robot_type: Mapped[str | None] = mapped_column(String(160))
+    arms: Mapped[str | None] = mapped_column(String(240))
+    sensors: Mapped[str | None] = mapped_column(Text)
+    compute: Mapped[str | None] = mapped_column(String(240))
+    ros_version: Mapped[str | None] = mapped_column(String(120))
+    moveit_version: Mapped[str | None] = mapped_column(String(120))
+    notes: Mapped[str | None] = mapped_column(Text)
+
+    studies: Mapped[list["ExperimentStudy"]] = relationship(back_populates="robot_profile")
+
+
+class ExperimentStudy(Base, TimestampMixin):
+    __tablename__ = "experiment_studies"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    study_code: Mapped[str] = mapped_column(String(80), index=True)
+    name: Mapped[str] = mapped_column(String(300), index=True)
+    project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), nullable=True)
+    robot_profile_id: Mapped[int | None] = mapped_column(ForeignKey("robot_profiles.id"), nullable=True)
+    status: Mapped[str] = mapped_column(String(40), default="Planning", index=True)
+    current_stage: Mapped[str | None] = mapped_column(String(120))
+    task_type: Mapped[str] = mapped_column(String(120), default="Robot Task Planning")
+    environment: Mapped[str | None] = mapped_column(String(120))
+    research_question: Mapped[str | None] = mapped_column(Text)
+    hypothesis: Mapped[str | None] = mapped_column(Text)
+    claim: Mapped[str | None] = mapped_column(Text)
+    conclusion_status: Mapped[str] = mapped_column(String(40), default="Inconclusive")
+    hypothesis_status: Mapped[str] = mapped_column(String(40), default="Inconclusive")
+    evidence_summary: Mapped[str | None] = mapped_column(Text)
+    key_metric_improvements: Mapped[str | None] = mapped_column(Text)
+    next_step: Mapped[str | None] = mapped_column(Text)
+    analysis_key_findings: Mapped[str | None] = mapped_column(Text)
+    analysis_unexpected_findings: Mapped[str | None] = mapped_column(Text)
+    analysis_failure_summary: Mapped[str | None] = mapped_column(Text)
+    analysis_why_worked: Mapped[str | None] = mapped_column(Text)
+    analysis_why_failed: Mapped[str | None] = mapped_column(Text)
+    analysis_limitations: Mapped[str | None] = mapped_column(Text)
+    analysis_threats_to_validity: Mapped[str | None] = mapped_column(Text)
+
+    project: Mapped[Project | None] = relationship(back_populates="experiment_studies")
+    robot_profile: Mapped[RobotProfile | None] = relationship(back_populates="studies")
+    task_profile: Mapped["TaskProfile | None"] = relationship(back_populates="study", cascade="all, delete-orphan", uselist=False)
+    protocol: Mapped["ExperimentProtocol | None"] = relationship(back_populates="study", cascade="all, delete-orphan", uselist=False)
+    conditions: Mapped[list["ExperimentCondition"]] = relationship(back_populates="study", cascade="all, delete-orphan")
+    metrics: Mapped[list["MetricValue"]] = relationship(back_populates="study", cascade="all, delete-orphan")
+    artifacts: Mapped[list["ArtifactReference"]] = relationship(back_populates="study", cascade="all, delete-orphan")
+
+
+class TaskProfile(Base, TimestampMixin):
+    __tablename__ = "task_profiles"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    study_id: Mapped[int] = mapped_column(ForeignKey("experiment_studies.id"), unique=True)
+    task_name: Mapped[str | None] = mapped_column(String(240))
+    instruction: Mapped[str | None] = mapped_column(Text)
+    initial_state: Mapped[str | None] = mapped_column(Text)
+    goal_state: Mapped[str | None] = mapped_column(Text)
+    constraints: Mapped[str | None] = mapped_column(Text)
+    success_criteria: Mapped[str | None] = mapped_column(Text)
+    task_steps: Mapped[str | None] = mapped_column(Text)
+    task_complexity: Mapped[str | None] = mapped_column(String(80))
+    scene_complexity: Mapped[str | None] = mapped_column(String(80))
+    object_count: Mapped[int | None] = mapped_column(Integer)
+    perception_uncertainty: Mapped[str | None] = mapped_column(String(80))
+    execution_uncertainty: Mapped[str | None] = mapped_column(String(80))
+    position_error_threshold: Mapped[str | None] = mapped_column(String(80))
+    orientation_error_threshold: Mapped[str | None] = mapped_column(String(80))
+    no_collision_required: Mapped[bool] = mapped_column(Boolean, default=True)
+    timeout_required: Mapped[bool] = mapped_column(Boolean, default=True)
+    human_intervention_allowed: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    study: Mapped[ExperimentStudy] = relationship(back_populates="task_profile")
+
+
+class ExperimentProtocol(Base, TimestampMixin):
+    __tablename__ = "experiment_protocols"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    study_id: Mapped[int] = mapped_column(ForeignKey("experiment_studies.id"), unique=True)
+    trials_per_condition: Mapped[int | None] = mapped_column(Integer)
+    random_seeds: Mapped[str | None] = mapped_column(Text)
+    seed_strategy: Mapped[str | None] = mapped_column(String(160))
+    timeout_seconds: Mapped[int | None] = mapped_column(Integer)
+    max_retries: Mapped[int | None] = mapped_column(Integer)
+    human_intervention_allowed: Mapped[bool] = mapped_column(Boolean, default=False)
+    reset_policy: Mapped[str | None] = mapped_column(Text)
+    task_repetitions: Mapped[int | None] = mapped_column(Integer)
+    scene_count: Mapped[int | None] = mapped_column(Integer)
+    object_reset_policy: Mapped[str | None] = mapped_column(Text)
+
+    study: Mapped[ExperimentStudy] = relationship(back_populates="protocol")
+
+
+class AblationGroup(Base, TimestampMixin):
+    __tablename__ = "ablation_groups"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    study_id: Mapped[int] = mapped_column(ForeignKey("experiment_studies.id"))
+    name: Mapped[str] = mapped_column(String(240))
+    description: Mapped[str | None] = mapped_column(Text)
+
+
+class ExperimentCondition(Base, TimestampMixin):
+    __tablename__ = "experiment_conditions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    study_id: Mapped[int] = mapped_column(ForeignKey("experiment_studies.id"))
+    ablation_group_id: Mapped[int | None] = mapped_column(ForeignKey("ablation_groups.id"), nullable=True)
+    name: Mapped[str] = mapped_column(String(240))
+    condition_type: Mapped[str] = mapped_column(String(80), default="Baseline")
+    description: Mapped[str | None] = mapped_column(Text)
+    enabled_components: Mapped[str | None] = mapped_column(Text)
+    disabled_components: Mapped[str | None] = mapped_column(Text)
+    project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), nullable=True)
+    git_commit_hash: Mapped[str | None] = mapped_column(String(80))
+    git_branch: Mapped[str | None] = mapped_column(String(200))
+    git_dirty: Mapped[bool] = mapped_column(Boolean, default=False)
+    config_path: Mapped[str | None] = mapped_column(String(800))
+    prompt_version: Mapped[str | None] = mapped_column(String(240))
+    prompt_path: Mapped[str | None] = mapped_column(String(800))
+    model_name: Mapped[str | None] = mapped_column(String(240))
+    model_version: Mapped[str | None] = mapped_column(String(240))
+    llm: Mapped[str | None] = mapped_column(String(240))
+    retry_policy: Mapped[str | None] = mapped_column(String(240))
+    timeout_seconds: Mapped[int | None] = mapped_column(Integer)
+    simulator: Mapped[str | None] = mapped_column(String(160))
+    ros_version: Mapped[str | None] = mapped_column(String(120))
+    moveit_version: Mapped[str | None] = mapped_column(String(120))
+    generalization_dimension: Mapped[str | None] = mapped_column(String(240))
+    seen_unseen: Mapped[str | None] = mapped_column(String(80))
+
+    study: Mapped[ExperimentStudy] = relationship(back_populates="conditions")
+    trials: Mapped[list["ExperimentTrial"]] = relationship(back_populates="condition", cascade="all, delete-orphan")
+    metrics: Mapped[list["MetricValue"]] = relationship(back_populates="condition", cascade="all, delete-orphan")
+    artifacts: Mapped[list["ArtifactReference"]] = relationship(back_populates="condition", cascade="all, delete-orphan")
+
+
+class ExperimentTrial(Base, TimestampMixin):
+    __tablename__ = "experiment_trials"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    condition_id: Mapped[int] = mapped_column(ForeignKey("experiment_conditions.id"))
+    trial_id: Mapped[str] = mapped_column(String(80), index=True)
+    scene: Mapped[str | None] = mapped_column(String(240))
+    seed: Mapped[int | None] = mapped_column(Integer)
+    start_time: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    end_time: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    duration_seconds: Mapped[float | None] = mapped_column(Float)
+    result: Mapped[str] = mapped_column(String(40), default="Success")
+    steps: Mapped[int | None] = mapped_column(Integer)
+    plan_length: Mapped[int | None] = mapped_column(Integer)
+    replan_count: Mapped[int | None] = mapped_column(Integer, default=0)
+    human_intervention: Mapped[bool] = mapped_column(Boolean, default=False)
+    failure_category: Mapped[str | None] = mapped_column(String(120))
+    failure_layer: Mapped[str | None] = mapped_column(String(120))
+    note: Mapped[str | None] = mapped_column(Text)
+
+    condition: Mapped[ExperimentCondition] = relationship(back_populates="trials")
+    trace_events: Mapped[list["PlanningTraceEvent"]] = relationship(back_populates="trial", cascade="all, delete-orphan")
+    metrics: Mapped[list["MetricValue"]] = relationship(back_populates="trial", cascade="all, delete-orphan")
+    artifacts: Mapped[list["ArtifactReference"]] = relationship(back_populates="trial", cascade="all, delete-orphan")
+
+
+class MetricDefinition(Base, TimestampMixin):
+    __tablename__ = "metric_definitions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    key: Mapped[str] = mapped_column(String(160), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(240))
+    name_zh: Mapped[str | None] = mapped_column(String(240))
+    group: Mapped[str] = mapped_column(String(120), default="Task-level")
+    unit: Mapped[str | None] = mapped_column(String(80))
+    higher_is_better: Mapped[bool] = mapped_column(Boolean, default=True)
+    description: Mapped[str | None] = mapped_column(Text)
+
+
+class MetricValue(Base, TimestampMixin):
+    __tablename__ = "metric_values"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    study_id: Mapped[int | None] = mapped_column(ForeignKey("experiment_studies.id"), nullable=True)
+    condition_id: Mapped[int | None] = mapped_column(ForeignKey("experiment_conditions.id"), nullable=True)
+    trial_id: Mapped[int | None] = mapped_column(ForeignKey("experiment_trials.id"), nullable=True)
+    metric_key: Mapped[str] = mapped_column(String(160), index=True)
+    value: Mapped[float | None] = mapped_column(Float)
+    value_text: Mapped[str | None] = mapped_column(String(240))
+    mean: Mapped[float | None] = mapped_column(Float)
+    std: Mapped[float | None] = mapped_column(Float)
+    count: Mapped[int | None] = mapped_column(Integer)
+    p_value: Mapped[float | None] = mapped_column(Float)
+    effect_size: Mapped[str | None] = mapped_column(String(120))
+    confidence_interval: Mapped[str | None] = mapped_column(String(120))
+    statistical_test: Mapped[str | None] = mapped_column(String(160))
+    is_primary: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    study: Mapped[ExperimentStudy | None] = relationship(back_populates="metrics")
+    condition: Mapped[ExperimentCondition | None] = relationship(back_populates="metrics")
+    trial: Mapped[ExperimentTrial | None] = relationship(back_populates="metrics")
+
+
+class PlanningTraceEvent(Base, TimestampMixin):
+    __tablename__ = "planning_trace_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    trial_id: Mapped[int] = mapped_column(ForeignKey("experiment_trials.id"))
+    event_type: Mapped[str] = mapped_column(String(80))
+    title: Mapped[str | None] = mapped_column(String(240))
+    content: Mapped[str | None] = mapped_column(Text)
+    order_index: Mapped[int] = mapped_column(Integer, default=0)
+    timestamp: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    trial: Mapped[ExperimentTrial] = relationship(back_populates="trace_events")
+
+
+class ArtifactReference(Base, TimestampMixin):
+    __tablename__ = "artifact_references"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    study_id: Mapped[int | None] = mapped_column(ForeignKey("experiment_studies.id"), nullable=True)
+    condition_id: Mapped[int | None] = mapped_column(ForeignKey("experiment_conditions.id"), nullable=True)
+    trial_id: Mapped[int | None] = mapped_column(ForeignKey("experiment_trials.id"), nullable=True)
+    artifact_type: Mapped[str] = mapped_column(String(80), default="log")
+    path: Mapped[str] = mapped_column(String(1000))
+    size: Mapped[int | None] = mapped_column(Integer)
+    description: Mapped[str | None] = mapped_column(Text)
+
+    study: Mapped[ExperimentStudy | None] = relationship(back_populates="artifacts")
+    condition: Mapped[ExperimentCondition | None] = relationship(back_populates="artifacts")
+    trial: Mapped[ExperimentTrial | None] = relationship(back_populates="artifacts")
 
 
 class ProjectCheckpoint(Base, TimestampMixin):

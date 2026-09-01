@@ -110,16 +110,23 @@ def build_dashboard_summary_payload(db: Session) -> dict[str, Any]:
         if status in {"Finished", "Reference"}:
             recently_finished.append({"id": paper.id, "title": paper.title, "venue": paper.venue, "year": paper.year})
     experiments = db.query(models.Experiment).order_by(models.Experiment.updated_at.desc()).all()
+    experiment_studies = db.query(models.ExperimentStudy).order_by(models.ExperimentStudy.updated_at.desc()).all()
     experiment_counts = {status: 0 for status in EXPERIMENT_STATUSES}
     for experiment in experiments:
         experiment_counts[infer_experiment_status(experiment)] += 1
+    for study in experiment_studies:
+        status = (study.status or "pending").lower()
+        if status == "planning":
+            status = "pending"
+        if status in experiment_counts:
+            experiment_counts[status] += 1
     settings_payload = build_settings_payload(db)
     current_session = current_focus_session(db)
     return {
         "today": {"date": today, "tasks": [schemas.TaskOut.model_validate(task).model_dump(mode="json") for task in today_tasks], "completed_tasks": sum(1 for task in today_tasks if task.status == "done"), "total_tasks": len(today_tasks), "completion_rate": 0, "courses": [], "schedule": [], "plan": [task.title for task in today_tasks if task.status != "done"][:5]},
         "projects": {"total": len(projects), "counts": project_counts, "featured": featured[:6]},
         "papers": {"total": len(papers), "status_counts": paper_status_counts, "venue_counts": venue_counts, "currently_reading": currently_reading[:6], "recently_finished": recently_finished[:6]},
-        "experiments": {"total": len(experiments), "counts": experiment_counts, "running": [], "recent_results": [], "research_ideas_pending": db.query(models.ResearchIdea).filter(models.ResearchIdea.status == "candidate").count(), "research_ideas": []},
+        "experiments": {"total": len(experiments) + len(experiment_studies), "counts": experiment_counts, "running": [{"id": study.id, "code": study.study_code, "title": study.name, "metrics": study.claim, "conclusion": study.hypothesis_status} for study in experiment_studies if (study.status or "").lower() == "running"][:6], "recent_results": [{"id": study.id, "code": study.study_code, "title": study.name, "metrics": study.evidence_summary, "conclusion": study.hypothesis_status} for study in experiment_studies if (study.status or "").lower() == "completed"][:6], "research_ideas_pending": db.query(models.ResearchIdea).filter(models.ResearchIdea.status == "candidate").count(), "research_ideas": []},
         "knowledge": {"obsidian_connected": bool(settings_payload["integrations"]["obsidian"]["enabled"] and settings_payload["integrations"]["obsidian"]["vault_path"]), "total_notes": db.query(models.KnowledgeLink).count(), "updated_this_week": 0, "recently_updated": []},
         "git": {"projects": []},
         "focus": {"current_session": focus_out(current_session), "today_duration": focus_duration_for_range(db, "today"), "week_duration": focus_duration_for_range(db, "week")},

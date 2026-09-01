@@ -1,4 +1,4 @@
-import type { DashboardSummary, DirectoryListing, Experiment, FocusSession, GitCommit, KnowledgeLink, Paper, Project, ProjectProgress, ProjectProgressLog, ProjectScan, ReadingNote, SearchPaper, Summary, SystemSettings, Task } from "./types";
+import type { ArtifactReference, DashboardSummary, DirectoryListing, Experiment, ExperimentCondition, ExperimentProtocol, ExperimentStudy, ExperimentStudyDetail, ExperimentTrial, FocusSession, GitCommit, KnowledgeLink, MetricTemplate, MetricValue, Paper, PlanningTraceEvent, Project, ProjectProgress, ProjectProgressLog, ProjectScan, ReadingNote, RobotProfile, SearchPaper, Summary, SystemSettings, Task, TaskProfile } from "./types";
 
 export const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8770";
 
@@ -220,6 +220,50 @@ export const api = {
   createExperiment: (experiment: Partial<Experiment>) => request<Experiment>("/experiments", {
     method: "POST",
     body: JSON.stringify(experiment),
+  }),
+  robotProfiles: () => request<RobotProfile[]>("/robot-profiles"),
+  createRobotProfile: (profile: Partial<RobotProfile>) => request<RobotProfile>("/robot-profiles", {
+    method: "POST",
+    body: JSON.stringify(profile),
+  }),
+  experimentMetricTemplates: () => request<{ templates: MetricTemplate[] }>("/experiment-metric-templates"),
+  experimentStudies: () => request<ExperimentStudy[]>("/experiment-studies"),
+  createExperimentStudy: (study: Partial<ExperimentStudy> & { task_profile?: Partial<TaskProfile>; protocol?: Partial<ExperimentProtocol> }) => request<ExperimentStudyDetail>("/experiment-studies", {
+    method: "POST",
+    body: JSON.stringify(study),
+  }),
+  experimentStudyDetail: (id: number) => request<ExperimentStudyDetail>(`/experiment-studies/${id}`),
+  updateExperimentStudy: (id: number, payload: Partial<ExperimentStudy>) => request<ExperimentStudyDetail>(`/experiment-studies/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  }),
+  updateTaskProfile: (id: number, payload: Partial<TaskProfile>) => request<ExperimentStudyDetail>(`/experiment-studies/${id}/task-profile`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  }),
+  updateExperimentProtocol: (id: number, payload: Partial<ExperimentProtocol>) => request<ExperimentStudyDetail>(`/experiment-studies/${id}/protocol`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  }),
+  createExperimentCondition: (payload: Partial<ExperimentCondition>) => request<ExperimentStudyDetail>("/experiment-conditions", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }),
+  createExperimentTrial: (payload: Partial<ExperimentTrial>) => request<ExperimentStudyDetail>("/experiment-trials", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }),
+  createPlanningTraceEvent: (payload: Partial<PlanningTraceEvent>) => request<ExperimentStudyDetail>("/planning-trace-events", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }),
+  createMetricValue: (payload: Partial<MetricValue>) => request<ExperimentStudyDetail>("/metric-values", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }),
+  createArtifactReference: (payload: Partial<ArtifactReference>) => request<ExperimentStudyDetail>("/artifact-references", {
+    method: "POST",
+    body: JSON.stringify(payload),
   }),
   knowledge: () => request<KnowledgeLink[]>("/knowledge-links"),
   createKnowledge: (knowledge: Partial<KnowledgeLink>) => request<KnowledgeLink>("/knowledge-links", {

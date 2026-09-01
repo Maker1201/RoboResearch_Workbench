@@ -169,7 +169,7 @@ export default function App() {
         {tab === "knowledge" && <Knowledge t={t.knowledge} knowledge={knowledge} papers={papers} refresh={refresh} />}
         {tab === "research" && <ResearchWriting t={t.research} projects={projects} papers={papers} notes={notes} experiments={experiments} />}
         {tab === "review" && <Review t={t.review} moduleRows={coreModuleRows[lang]} summary={summary} projects={projects} papers={papers} experiments={experiments} />}
-        {tab === "experiments" && <Experiments t={t.experiments} experiments={experiments} projects={projects} refresh={refresh} />}
+        {tab === "experiments" && <Experiments t={t.experiments} projects={projects} refresh={refresh} />}
         {tab === "settings" && settings && <SettingsPage t={t.settings} settings={settings} setSettings={setSettings} setLang={setLang} setMessage={setMessage} />}
       </main>
     </div>
