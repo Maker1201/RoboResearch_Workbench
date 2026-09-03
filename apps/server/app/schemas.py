@@ -784,6 +784,89 @@ class KnowledgeLinkOut(KnowledgeLinkBase, ORMModel):
     updated_at: datetime
 
 
+class ZoteroAnnotationOut(ORMModel):
+    id: int | None = None
+    paper_id: int | None = None
+    zotero_item_key: str
+    zotero_annotation_key: str
+    annotation_type: str = "highlight"
+    selected_text: str | None = None
+    comment: str | None = None
+    page_label: str | None = None
+    page_index: int | None = None
+    tags: str | None = None
+    date_modified: datetime | None = None
+    inbox_types: list[str] = Field(default_factory=list)
+
+
+class ZoteroAnnotationSyncOut(BaseModel):
+    paper_id: int
+    synced: int
+    inbox_created: int
+    annotations: list[ZoteroAnnotationOut]
+    message: str
+
+
+class KnowledgeInboxOut(ORMModel):
+    id: int
+    source_type: str
+    source_paper_id: int | None = None
+    zotero_item_key: str | None = None
+    zotero_annotation_key: str | None = None
+    inbox_type: str
+    selected_text: str | None = None
+    comment: str | None = None
+    page_label: str | None = None
+    tags: str | None = None
+    status: str
+    created_at: datetime
+    updated_at: datetime
+    processed_at: datetime | None = None
+    paper_title: str | None = None
+
+
+class KnowledgeInboxCreateFromAnnotation(BaseModel):
+    paper_id: int
+    zotero_annotation_key: str
+    inbox_type: str = "knowledge"
+
+
+class KnowledgeInboxUpdate(BaseModel):
+    status: str | None = None
+
+
+class KnowledgeSearchOut(BaseModel):
+    direct_matches: list[KnowledgeLinkOut]
+    related: list[KnowledgeLinkOut]
+
+
+class KnowledgeAppendEvidenceRequest(BaseModel):
+    inbox_item_id: int | None = None
+    zotero_annotation_key: str | None = None
+    paper_id: int | None = None
+    manual_title: str | None = None
+    manual_content: str | None = None
+    manual_comment: str | None = None
+    page_label: str | None = None
+    tags: str | None = None
+
+
+class KnowledgeCreateFromInboxRequest(BaseModel):
+    inbox_item_id: int
+    title: str
+    category: str = "Robot Task Planning"
+    tags: str | None = None
+    type: str = "Concept"
+    status: str = "seed"
+    evidence_level: str = "literature"
+    obsidian_path: str | None = None
+    related_knowledge_ids: list[int] = Field(default_factory=list)
+
+
+class ReadingNoteAnnotationRequest(BaseModel):
+    zotero_annotation_key: str
+
+
 class DashboardLayoutIn(BaseModel):
     layout: list[dict[str, Any]]
 

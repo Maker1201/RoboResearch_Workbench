@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Table, Text
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Table, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -478,6 +478,46 @@ class KnowledgeLink(Base, TimestampMixin):
     tags: Mapped[str | None] = mapped_column(Text)
     notes: Mapped[str | None] = mapped_column(Text)
     papers: Mapped[list[Paper]] = relationship(secondary=paper_knowledge_links, back_populates="knowledge_links")
+
+
+class ZoteroAnnotationCache(Base, TimestampMixin):
+    __tablename__ = "zotero_annotation_cache"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    paper_id: Mapped[int] = mapped_column(ForeignKey("papers.id"), index=True)
+    zotero_item_key: Mapped[str] = mapped_column(String(80), index=True)
+    zotero_annotation_key: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    annotation_type: Mapped[str] = mapped_column(String(40), default="highlight")
+    selected_text: Mapped[str | None] = mapped_column(Text)
+    comment: Mapped[str | None] = mapped_column(Text)
+    page_label: Mapped[str | None] = mapped_column(String(80))
+    page_index: Mapped[int | None] = mapped_column(Integer)
+    tags: Mapped[str | None] = mapped_column(Text)
+    date_modified: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    paper: Mapped[Paper] = relationship()
+
+
+class KnowledgeInboxItem(Base, TimestampMixin):
+    __tablename__ = "knowledge_inbox_items"
+    __table_args__ = (
+        UniqueConstraint("source_type", "zotero_annotation_key", "inbox_type", name="uq_knowledge_inbox_zotero_annotation_type"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source_type: Mapped[str] = mapped_column(String(80), default="ZOTERO_ANNOTATION", index=True)
+    source_paper_id: Mapped[int | None] = mapped_column(ForeignKey("papers.id"), nullable=True, index=True)
+    zotero_item_key: Mapped[str | None] = mapped_column(String(80), index=True)
+    zotero_annotation_key: Mapped[str | None] = mapped_column(String(80), index=True)
+    inbox_type: Mapped[str] = mapped_column(String(40), default="knowledge", index=True)
+    selected_text: Mapped[str | None] = mapped_column(Text)
+    comment: Mapped[str | None] = mapped_column(Text)
+    page_label: Mapped[str | None] = mapped_column(String(80))
+    tags: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(40), default="pending", index=True)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    paper: Mapped[Paper | None] = relationship()
 
 
 class DashboardLayout(Base, TimestampMixin):

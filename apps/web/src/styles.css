@@ -188,22 +188,6 @@ main {
   min-width: 0;
 }
 
-.topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  margin-bottom: 22px;
-  padding: 18px 20px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background:
-    linear-gradient(90deg, rgba(255, 255, 255, .84), rgba(232, 251, 248, .66)),
-    linear-gradient(135deg, rgba(0, 174, 202, .1), rgba(227, 93, 122, .07), rgba(255, 210, 118, .12));
-  backdrop-filter: blur(18px);
-  box-shadow: 0 18px 48px rgba(37, 97, 111, .14);
-}
-
 h1, h2, h3, p {
   margin-top: 0;
 }
@@ -226,7 +210,7 @@ h3 {
   color: #102a31;
 }
 
-.topbar p, .muted, .paper-card span, .record span, .list-item span {
+.muted, .paper-card span, .record span, .list-item span {
   color: var(--muted);
 }
 
@@ -265,7 +249,7 @@ h3 {
   color: #102a31;
 }
 
-.widget-title svg, nav svg, .topbar svg {
+.widget-title svg, nav svg {
   color: var(--cyan);
 }
 
@@ -579,10 +563,6 @@ pre {
   }
   .page-grid, .paper-search {
     grid-template-columns: 1fr;
-  }
-  .topbar {
-    align-items: flex-start;
-    flex-direction: column;
   }
   .layout {
     width: 100% !important;
@@ -3098,4 +3078,124 @@ pre {
   .experiment-sidebar {
     height: auto;
   }
+}
+
+
+.zotero-annotations-panel {
+  margin: 16px 0;
+  padding: 14px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.annotation-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.annotation-card:last-child {
+  border-bottom: 0;
+}
+
+.annotation-quote {
+  margin: 0;
+  padding-left: 12px;
+  border-left: 3px solid var(--accent);
+  color: var(--text);
+  line-height: 1.6;
+}
+
+.annotation-comment {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.annotation-comment strong {
+  margin-right: 8px;
+  color: var(--text);
+}
+
+.knowledge-workbench .knowledge-inbox-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.36fr) minmax(0, 1fr);
+  gap: 18px;
+}
+
+.knowledge-inbox-detail {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.knowledge-search-form {
+  align-items: end;
+}
+
+.knowledge-result-grid {
+  margin-bottom: 8px;
+}
+
+.nested-create-panel {
+  display: grid;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+@media (max-width: 880px) {
+  .knowledge-workbench .knowledge-inbox-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.field-hint {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.knowledge-search-panel {
+  align-self: start;
+}
+
+.supplement-editor {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(14, 165, 233, 0.18);
+}
+
+.supplement-editor label {
+  display: grid;
+  gap: 6px;
+  color: #263842;
+  font-size: 13px;
+}
+
+.supplement-editor textarea {
+  min-height: 82px;
+}
+
+.knowledge-search-actions {
+  align-items: stretch;
+}
+
+.empty-action-card {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  margin-top: 10px;
+  border: 1px dashed rgba(14, 165, 233, 0.42);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.48);
+}
+
+.notice.error {
+  border-color: rgba(239, 68, 68, 0.32);
+  color: #991b1b;
+  background: rgba(254, 226, 226, 0.54);
 }

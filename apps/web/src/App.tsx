@@ -1,22 +1,19 @@
 import { useEffect, useState } from "react";
 import {
-  BarChart3,
   BookOpen,
   Boxes,
   CalendarDays,
-  Check,
   FlaskConical,
   Languages,
   LayoutDashboard,
   Link,
-  Loader2,
   PenLine,
   Settings as SettingsIcon,
   ShieldCheck,
 } from "lucide-react";
 import { api } from "./api";
-import type { DashboardSummary, Experiment, KnowledgeLink, Paper, Project, ReadingNote, Summary, SystemSettings, Task } from "./types";
-import { coreModuleRows, type Tab } from "./constants";
+import type { DashboardSummary, Experiment, KnowledgeLink, Paper, Project, ReadingNote, SystemSettings, Task } from "./types";
+import type { Tab } from "./constants";
 import { ui, type Lang } from "./i18n";
 import { friendlyError } from "./utils";
 import { Dashboard, FocusMode } from "./views/Dashboard";
@@ -25,11 +22,10 @@ import { Knowledge } from "./views/Knowledge";
 import { Papers } from "./views/Papers";
 import { Projects } from "./views/Projects";
 import { ResearchWriting } from "./views/ResearchWriting";
-import { Review } from "./views/Review";
 import { SettingsPage } from "./views/Settings";
 import { StudyLife } from "./views/StudyLife";
 
-const TAB_KEYS: Tab[] = ["dashboard", "study", "projects", "papers", "knowledge", "research", "review", "experiments", "settings"];
+const TAB_KEYS: Tab[] = ["dashboard", "study", "projects", "papers", "knowledge", "research", "experiments", "settings"];
 
 function initialTab(): Tab {
   const saved = localStorage.getItem("rrw-tab");
@@ -39,7 +35,6 @@ function initialTab(): Tab {
 export default function App() {
   const [tab, setTab] = useState<Tab>(initialTab);
   const [lang, setLang] = useState<Lang>(() => (localStorage.getItem("rrw-lang") === "en" ? "en" : "zh"));
-  const [summary, setSummary] = useState<Summary | null>(null);
   const [dashboardSummary, setDashboardSummary] = useState<DashboardSummary | null>(null);
   const [settings, setSettings] = useState<SystemSettings | null>(null);
   const [focusMode, setFocusMode] = useState(false);
@@ -51,7 +46,7 @@ export default function App() {
   const [experiments, setExperiments] = useState<Experiment[]>([]);
   const [knowledge, setKnowledge] = useState<KnowledgeLink[]>([]);
   const [message, setMessage] = useState<string>(ui[lang].connecting);
-  const [loading, setLoading] = useState(false);
+  const [, setLoading] = useState(false);
   const t = ui[lang];
 
   useEffect(() => {
@@ -72,8 +67,7 @@ export default function App() {
 
   async function refresh() {
     try {
-      const [summaryData, dashboardData, settingsData, projectData, taskData, paperData, noteData, experimentData, knowledgeData] = await Promise.all([
-        api.summary(),
+      const [dashboardData, settingsData, projectData, taskData, paperData, noteData, experimentData, knowledgeData] = await Promise.all([
         api.dashboardSummary(),
         api.settings(),
         api.projects(),
@@ -83,7 +77,6 @@ export default function App() {
         api.experiments(),
         api.knowledge(),
       ]);
-      setSummary(summaryData);
       setDashboardSummary(dashboardData);
       setSettings(settingsData);
       const backendLang = settingsData.general.language === "en-US" ? "en" : "zh";
@@ -114,7 +107,6 @@ export default function App() {
     ["papers", BookOpen, t.nav.papers],
     ["knowledge", Link, t.nav.knowledge],
     ["research", PenLine, t.nav.research],
-    ["review", BarChart3, t.nav.review],
     ["experiments", FlaskConical, t.nav.experiments],
     ["settings", SettingsIcon, t.nav.settings],
   ];
@@ -148,17 +140,6 @@ export default function App() {
       </aside>
 
       <main>
-        <header className="topbar">
-          <div>
-            <h1>{nav.find(([key]) => key === tab)?.[2]}</h1>
-            <p>{t.tagline}</p>
-          </div>
-          <button className="primary" onClick={() => void refresh()} disabled={loading || focusMode}>
-            {loading ? <Loader2 size={16} className="spin" /> : <Check size={16} />}
-            {t.refresh}
-          </button>
-        </header>
-
         {tab === "dashboard" && (focusMode ? <FocusMode t={t.focusMode} tasks={tasks} projects={projects} summary={dashboardSummary} refresh={refresh} exit={() => setFocusMode(false)} /> : <Dashboard t={t.dashboard} summary={dashboardSummary} tasks={tasks} refresh={refresh} openFocus={() => setFocusMode(true)} setTab={setTab} openStudyDate={(date) => {
           setStudyDate(date);
           setTab("study");
@@ -168,7 +149,6 @@ export default function App() {
         {tab === "papers" && <Papers t={t.papers} papers={papers} projects={projects} notes={notes} refresh={refresh} setMessage={setMessage} setLoading={setLoading} />}
         {tab === "knowledge" && <Knowledge t={t.knowledge} knowledge={knowledge} papers={papers} refresh={refresh} />}
         {tab === "research" && <ResearchWriting t={t.research} projects={projects} papers={papers} notes={notes} experiments={experiments} />}
-        {tab === "review" && <Review t={t.review} moduleRows={coreModuleRows[lang]} summary={summary} projects={projects} papers={papers} experiments={experiments} />}
         {tab === "experiments" && <Experiments t={t.experiments} projects={projects} refresh={refresh} />}
         {tab === "settings" && settings && <SettingsPage t={t.settings} settings={settings} setSettings={setSettings} setLang={setLang} setMessage={setMessage} />}
       </main>

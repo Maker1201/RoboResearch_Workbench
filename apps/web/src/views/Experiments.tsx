@@ -64,6 +64,15 @@ export function Experiments({ t, projects, refresh }: Props) {
 
   const selectedTrial = detail?.trials.find((trial) => trial.id === Number(traceForm.trial_id));
   const selectedCondition = detail?.conditions.find((condition) => condition.id === Number(trialForm.condition_id));
+  const robotPlaceholders: Record<string, string> = {
+    name: "例如：Nero 双臂机械臂",
+    robot_type: "例如：Manipulator / Dual Arm",
+    arms: "例如：UR5e x2 / Franka Panda",
+    sensors: "例如：RealSense D455, 6D force sensor",
+    compute: "例如：RTX 4090 workstation / Jetson Orin",
+    ros_version: "例如：ROS2 Humble",
+    moveit_version: "例如：MoveIt 2.5",
+  };
 
   async function createStudy() {
     setMessage("");
@@ -190,8 +199,8 @@ export function Experiments({ t, projects, refresh }: Props) {
       <div className="panel experiment-sidebar">
         <div className="panel-heading"><h2>{t.newStudy}</h2></div>
         <div className="form-grid">
-          <label><span>{t.studyCode}</span><input value={studyForm.study_code} onChange={(event) => setStudyForm({ ...studyForm, study_code: event.target.value })} /></label>
-          <label><span>{t.studyName}</span><input value={studyForm.name} onChange={(event) => setStudyForm({ ...studyForm, name: event.target.value })} /></label>
+          <label><span>{t.studyCode}</span><input value={studyForm.study_code} onChange={(event) => setStudyForm({ ...studyForm, study_code: event.target.value })} placeholder="例如：EXP-STUDY-001" /></label>
+          <label><span>{t.studyName}</span><input value={studyForm.name} onChange={(event) => setStudyForm({ ...studyForm, name: event.target.value })} placeholder="例如：执行反馈驱动的机械臂装配任务规划" /></label>
           <label><span>{t.project}</span><select value={studyForm.project_id} onChange={(event) => setStudyForm({ ...studyForm, project_id: event.target.value })}><option value="">{t.noProject}</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
           <label><span>{t.environment}</span><select value={studyForm.environment} onChange={(event) => setStudyForm({ ...studyForm, environment: event.target.value })}><option>Simulation</option><option>Real Robot</option><option>Hybrid</option></select></label>
           <button className="primary" onClick={() => void createStudy()}><Plus size={16} />{t.createStudy}</button>
@@ -217,7 +226,7 @@ export function Experiments({ t, projects, refresh }: Props) {
             <Section title={t.overview} icon={<FlaskConical size={16} />}>
               <div className="form-grid two-col">
                 <label><span>{t.status}</span><select value={detail.study.status} onChange={(event) => void saveStudy({ status: event.target.value })}>{STATUS.map((item) => <option key={item}>{item}</option>)}</select></label>
-                <label><span>{t.currentStage}</span><input value={detail.study.current_stage ?? ""} onChange={(event) => setDetail({ ...detail, study: { ...detail.study, current_stage: event.target.value } })} onBlur={(event) => void saveStudy({ current_stage: event.target.value })} /></label>
+                <label><span>{t.currentStage}</span><input value={detail.study.current_stage ?? ""} onChange={(event) => setDetail({ ...detail, study: { ...detail.study, current_stage: event.target.value } })} onBlur={(event) => void saveStudy({ current_stage: event.target.value })} placeholder="例如：Baseline 对比 / 消融实验 / 真实机械臂验证" /></label>
                 <label><span>{t.robotProfile}</span><select value={detail.study.robot_profile_id ?? ""} onChange={(event) => void saveStudy({ robot_profile_id: event.target.value ? Number(event.target.value) : null })}><option value="">{t.noRobot}</option>{robots.map((robot) => <option key={robot.id} value={robot.id}>{robot.name}</option>)}</select></label>
                 <label><span>{t.hypothesisStatus}</span><select value={detail.study.hypothesis_status} onChange={(event) => void saveStudy({ hypothesis_status: event.target.value, conclusion_status: event.target.value })}>{HYPOTHESIS.map((item) => <option key={item}>{item}</option>)}</select></label>
               </div>
@@ -226,29 +235,33 @@ export function Experiments({ t, projects, refresh }: Props) {
               <EditableText t={t} label={t.claim} value={detail.study.claim} onChange={(value) => setDetail({ ...detail, study: { ...detail.study, claim: value } })} onSave={() => void saveStudy({ claim: detail.study.claim })} />
             </Section>
             <Section title={t.robotProfiles} icon={<Workflow size={16} />}>
-              <div className="form-grid two-col">{(["name", "robot_type", "arms", "sensors", "compute", "ros_version", "moveit_version"] as const).map((key) => <label key={key}><span>{label(t.robotFields, key)}</span><input value={robotForm[key]} onChange={(event) => setRobotForm({ ...robotForm, [key]: event.target.value })} /></label>)}</div>
+              <div className="form-grid two-col">{(["name", "robot_type", "arms", "sensors", "compute", "ros_version", "moveit_version"] as const).map((key) => <label key={key}><span>{label(t.robotFields, key)}</span><input value={robotForm[key]} onChange={(event) => setRobotForm({ ...robotForm, [key]: event.target.value })} placeholder={robotPlaceholders[key]} /></label>)}</div>
               <button onClick={() => void createRobotProfile()}><Plus size={16} />{t.createRobot}</button>
             </Section>
           </div>}
 
           {tab === "task" && detail.task_profile && <Section title={t.taskSetup} icon={<Workflow size={16} />}>
             <div className="form-grid two-col">
-              <label><span>{t.taskName}</span><input value={detail.task_profile.task_name ?? ""} onChange={(event) => updateTaskProfile("task_name", event.target.value)} /></label>
+              <label><span>{t.taskName}</span><input value={detail.task_profile.task_name ?? ""} onChange={(event) => updateTaskProfile("task_name", event.target.value)} placeholder="例如：齿轮-轴装配 / 插销装配 / 零部件分拣后安装" /></label>
               <label><span>{t.taskComplexity}</span><select value={detail.task_profile.task_complexity ?? ""} onChange={(event) => updateTaskProfile("task_complexity", event.target.value)}><option value="">-</option><option>Short Horizon</option><option>Medium Horizon</option><option>Long Horizon</option></select></label>
-              <label><span>{t.sceneComplexity}</span><input value={detail.task_profile.scene_complexity ?? ""} onChange={(event) => updateTaskProfile("scene_complexity", event.target.value)} /></label>
-              <label><span>{t.objectCount}</span><input type="number" value={detail.task_profile.object_count ?? ""} onChange={(event) => updateTaskProfile("object_count", numberOrNull(event.target.value))} /></label>
+              <label><span>{t.sceneComplexity}</span><input value={detail.task_profile.scene_complexity ?? ""} onChange={(event) => updateTaskProfile("scene_complexity", event.target.value)} placeholder="例如：单工位无遮挡 / 多零件轻微遮挡 / 动态干扰" /></label>
+              <label><span>{t.objectCount}</span><input type="number" value={detail.task_profile.object_count ?? ""} onChange={(event) => updateTaskProfile("object_count", numberOrNull(event.target.value))} placeholder="例如：6" /></label>
               <label><span>{t.perceptionUncertainty}</span><select value={detail.task_profile.perception_uncertainty ?? ""} onChange={(event) => updateTaskProfile("perception_uncertainty", event.target.value)}><option value="">-</option><option>Low</option><option>Medium</option><option>High</option></select></label>
               <label><span>{t.executionUncertainty}</span><select value={detail.task_profile.execution_uncertainty ?? ""} onChange={(event) => updateTaskProfile("execution_uncertainty", event.target.value)}><option value="">-</option><option>Low</option><option>Medium</option><option>High</option></select></label>
-              <label><span>{t.positionThreshold}</span><input value={detail.task_profile.position_error_threshold ?? ""} onChange={(event) => updateTaskProfile("position_error_threshold", event.target.value)} /></label>
-              <label><span>{t.orientationThreshold}</span><input value={detail.task_profile.orientation_error_threshold ?? ""} onChange={(event) => updateTaskProfile("orientation_error_threshold", event.target.value)} /></label>
+              <label><span>{t.positionThreshold}</span><input value={detail.task_profile.position_error_threshold ?? ""} onChange={(event) => updateTaskProfile("position_error_threshold", event.target.value)} placeholder="例如：2 mm" /></label>
+              <label><span>{t.orientationThreshold}</span><input value={detail.task_profile.orientation_error_threshold ?? ""} onChange={(event) => updateTaskProfile("orientation_error_threshold", event.target.value)} placeholder="例如：3 deg" /></label>
             </div>
             <div className="form-grid two-col text-fields">
-              <label><span>{t.instruction}</span><textarea value={detail.task_profile.instruction ?? ""} onChange={(event) => updateTaskProfile("instruction", event.target.value)} /></label>
-              <label><span>{t.taskSteps}</span><textarea value={detail.task_profile.task_steps ?? ""} onChange={(event) => updateTaskProfile("task_steps", event.target.value)} /></label>
-              <label><span>{t.initialState}</span><textarea value={detail.task_profile.initial_state ?? ""} onChange={(event) => updateTaskProfile("initial_state", event.target.value)} /></label>
-              <label><span>{t.goalState}</span><textarea value={detail.task_profile.goal_state ?? ""} onChange={(event) => updateTaskProfile("goal_state", event.target.value)} /></label>
-              <label><span>{t.constraints}</span><textarea value={detail.task_profile.constraints ?? ""} onChange={(event) => updateTaskProfile("constraints", event.target.value)} /></label>
-              <label><span>{t.successCriteria}</span><textarea value={detail.task_profile.success_criteria ?? ""} onChange={(event) => updateTaskProfile("success_criteria", event.target.value)} /></label>
+              <label><span>{t.instruction}</span><textarea value={detail.task_profile.instruction ?? ""} onChange={(event) => updateTaskProfile("instruction", event.target.value)} placeholder="例如：请抓取红色齿轮，并将其插入右侧固定轴。" /></label>
+              <label><span>{t.taskSteps}</span><textarea value={detail.task_profile.task_steps ?? ""} onChange={(event) => updateTaskProfile("task_steps", event.target.value)} placeholder="例如：1. 识别零件
+2. 估计抓取位姿
+3. 移动到装配区
+4. 对齐并插入
+5. 验证装配结果" /></label>
+              <label><span>{t.initialState}</span><textarea value={detail.task_profile.initial_state ?? ""} onChange={(event) => updateTaskProfile("initial_state", event.target.value)} placeholder="例如：齿轮位于料盘左侧，轴固定在装配夹具上，夹爪为空。" /></label>
+              <label><span>{t.goalState}</span><textarea value={detail.task_profile.goal_state ?? ""} onChange={(event) => updateTaskProfile("goal_state", event.target.value)} placeholder="例如：齿轮完全插入轴上，位置误差小于 2 mm，无碰撞。" /></label>
+              <label><span>{t.constraints}</span><textarea value={detail.task_profile.constraints ?? ""} onChange={(event) => updateTaskProfile("constraints", event.target.value)} placeholder="例如：禁止人工干预；最大执行时间 120 s；不得碰撞夹具。" /></label>
+              <label><span>{t.successCriteria}</span><textarea value={detail.task_profile.success_criteria ?? ""} onChange={(event) => updateTaskProfile("success_criteria", event.target.value)} placeholder="例如：目标零件装配正确、无碰撞、超时前完成、无需人工干预。" /></label>
             </div>
             <div className="toolbar"><label className="select-row"><input type="checkbox" checked={detail.task_profile.no_collision_required ?? true} onChange={(event) => updateTaskProfile("no_collision_required", event.target.checked)} />{t.noCollision}</label><label className="select-row"><input type="checkbox" checked={detail.task_profile.timeout_required ?? true} onChange={(event) => updateTaskProfile("timeout_required", event.target.checked)} />{t.timeoutRequired}</label><label className="select-row"><input type="checkbox" checked={detail.task_profile.human_intervention_allowed ?? false} onChange={(event) => updateTaskProfile("human_intervention_allowed", event.target.checked)} />{t.humanInterventionAllowed}</label></div>
             <button className="primary" onClick={() => void saveTaskProfile()}><Save size={16} />{t.save}</button>
@@ -256,16 +269,21 @@ export function Experiments({ t, projects, refresh }: Props) {
 
           {tab === "methods" && <Section title={t.methods} icon={<GitBranch size={16} />}>
             <div className="form-grid two-col">
-              <label><span>{t.conditionName}</span><input value={conditionForm.name} onChange={(event) => setConditionForm({ ...conditionForm, name: event.target.value })} /></label>
+              <label><span>{t.conditionName}</span><input value={conditionForm.name} onChange={(event) => setConditionForm({ ...conditionForm, name: event.target.value })} placeholder="例如：Baseline LLM Planner / Ours + Execution Feedback" /></label>
               <label><span>{t.conditionType}</span><select value={conditionForm.condition_type} onChange={(event) => setConditionForm({ ...conditionForm, condition_type: event.target.value })}>{CONDITION_TYPES.map((item) => <option key={item}>{item}</option>)}</select></label>
-              <label><span>{t.configPath}</span><input value={conditionForm.config_path} onChange={(event) => setConditionForm({ ...conditionForm, config_path: event.target.value })} /></label>
-              <label><span>{t.promptVersion}</span><input value={conditionForm.prompt_version} onChange={(event) => setConditionForm({ ...conditionForm, prompt_version: event.target.value })} /></label>
-              <label><span>{t.promptPath}</span><input value={conditionForm.prompt_path} onChange={(event) => setConditionForm({ ...conditionForm, prompt_path: event.target.value })} /></label>
-              <label><span>{t.modelLlm}</span><input value={conditionForm.llm} onChange={(event) => setConditionForm({ ...conditionForm, llm: event.target.value })} /></label>
+              <label><span>{t.configPath}</span><input value={conditionForm.config_path} onChange={(event) => setConditionForm({ ...conditionForm, config_path: event.target.value })} placeholder="例如：configs/assembly_planner_v3.yaml" /></label>
+              <label><span>{t.promptVersion}</span><input value={conditionForm.prompt_version} onChange={(event) => setConditionForm({ ...conditionForm, prompt_version: event.target.value })} placeholder="例如：planner_prompt_v7" /></label>
+              <label><span>{t.promptPath}</span><input value={conditionForm.prompt_path} onChange={(event) => setConditionForm({ ...conditionForm, prompt_path: event.target.value })} placeholder="例如：prompts/task_planner_v7.md" /></label>
+              <label><span>{t.modelLlm}</span><input value={conditionForm.llm} onChange={(event) => setConditionForm({ ...conditionForm, llm: event.target.value })} placeholder="例如：Qwen3 / GPT-5 / local-vlm" /></label>
               <label><span>{t.generalization}</span><select value={conditionForm.generalization_dimension} onChange={(event) => setConditionForm({ ...conditionForm, generalization_dimension: event.target.value })}><option value="">-</option>{GENERALIZATION.map((item) => <option key={item}>{item}</option>)}</select></label>
               <label><span>{t.seenUnseen}</span><select value={conditionForm.seen_unseen} onChange={(event) => setConditionForm({ ...conditionForm, seen_unseen: event.target.value })}><option>Seen</option><option>Unseen</option></select></label>
-              <label><span>{t.enabledComponents}</span><textarea value={conditionForm.enabled_components} onChange={(event) => setConditionForm({ ...conditionForm, enabled_components: event.target.value })} /></label>
-              <label><span>{t.disabledComponents}</span><textarea value={conditionForm.disabled_components} onChange={(event) => setConditionForm({ ...conditionForm, disabled_components: event.target.value })} /></label>
+              <label><span>{t.enabledComponents}</span><textarea value={conditionForm.enabled_components} onChange={(event) => setConditionForm({ ...conditionForm, enabled_components: event.target.value })} placeholder="每行一个启用模块，例如：
+LLM Planning
+Execution Feedback
+Replanning" /></label>
+              <label><span>{t.disabledComponents}</span><textarea value={conditionForm.disabled_components} onChange={(event) => setConditionForm({ ...conditionForm, disabled_components: event.target.value })} placeholder="用于消融实验，例如：
+- Replanning
+- Visual Re-grounding" /></label>
             </div>
             <button className="primary" onClick={() => void createCondition()}><Plus size={16} />{t.createCondition}</button>
             <div className="condition-grid">{detail.conditions.map((condition) => <div className="paper-card" key={condition.id}><strong>{condition.name}</strong><span>{label(t.conditionLabels, condition.condition_type)} · {condition.trials_count ?? 0} {t.trials}</span>{condition.git_dirty && <span className="notice"><ShieldAlert size={14} /> {t.gitDirty}</span>}<code>{condition.git_commit_hash || t.noCommit}</code><span>{t.components}: {condition.enabled_components || "-"}</span></div>)}</div>
@@ -273,16 +291,16 @@ export function Experiments({ t, projects, refresh }: Props) {
 
           {tab === "protocol" && detail.protocol && <Section title={t.protocol} icon={<ShieldAlert size={16} />}>
             <div className="form-grid two-col">
-              <label><span>{t.trialsPerCondition}</span><input type="number" value={detail.protocol.trials_per_condition ?? ""} onChange={(event) => updateProtocol("trials_per_condition", numberOrNull(event.target.value))} /></label>
-              <label><span>{t.randomSeeds}</span><input value={detail.protocol.random_seeds ?? ""} onChange={(event) => updateProtocol("random_seeds", event.target.value)} /></label>
-              <label><span>{t.seedStrategy}</span><input value={detail.protocol.seed_strategy ?? ""} onChange={(event) => updateProtocol("seed_strategy", event.target.value)} /></label>
-              <label><span>{t.timeoutSeconds}</span><input type="number" value={detail.protocol.timeout_seconds ?? ""} onChange={(event) => updateProtocol("timeout_seconds", numberOrNull(event.target.value))} /></label>
-              <label><span>{t.maxRetries}</span><input type="number" value={detail.protocol.max_retries ?? ""} onChange={(event) => updateProtocol("max_retries", numberOrNull(event.target.value))} /></label>
-              <label><span>{t.sceneCount}</span><input type="number" value={detail.protocol.scene_count ?? ""} onChange={(event) => updateProtocol("scene_count", numberOrNull(event.target.value))} /></label>
-              <label><span>{t.taskRepetitions}</span><input type="number" value={detail.protocol.task_repetitions ?? ""} onChange={(event) => updateProtocol("task_repetitions", numberOrNull(event.target.value))} /></label>
+              <label><span>{t.trialsPerCondition}</span><input type="number" value={detail.protocol.trials_per_condition ?? ""} onChange={(event) => updateProtocol("trials_per_condition", numberOrNull(event.target.value))} placeholder="例如：30" /></label>
+              <label><span>{t.randomSeeds}</span><input value={detail.protocol.random_seeds ?? ""} onChange={(event) => updateProtocol("random_seeds", event.target.value)} placeholder="例如：42-71 或 42,43,44" /></label>
+              <label><span>{t.seedStrategy}</span><input value={detail.protocol.seed_strategy ?? ""} onChange={(event) => updateProtocol("seed_strategy", event.target.value)} placeholder="例如：每个方法使用相同场景与随机种子" /></label>
+              <label><span>{t.timeoutSeconds}</span><input type="number" value={detail.protocol.timeout_seconds ?? ""} onChange={(event) => updateProtocol("timeout_seconds", numberOrNull(event.target.value))} placeholder="例如：120" /></label>
+              <label><span>{t.maxRetries}</span><input type="number" value={detail.protocol.max_retries ?? ""} onChange={(event) => updateProtocol("max_retries", numberOrNull(event.target.value))} placeholder="例如：3" /></label>
+              <label><span>{t.sceneCount}</span><input type="number" value={detail.protocol.scene_count ?? ""} onChange={(event) => updateProtocol("scene_count", numberOrNull(event.target.value))} placeholder="例如：3" /></label>
+              <label><span>{t.taskRepetitions}</span><input type="number" value={detail.protocol.task_repetitions ?? ""} onChange={(event) => updateProtocol("task_repetitions", numberOrNull(event.target.value))} placeholder="例如：10" /></label>
               <label className="select-row"><input type="checkbox" checked={detail.protocol.human_intervention_allowed ?? false} onChange={(event) => updateProtocol("human_intervention_allowed", event.target.checked)} />{t.humanInterventionAllowed}</label>
-              <label><span>{t.resetPolicy}</span><textarea value={detail.protocol.reset_policy ?? ""} onChange={(event) => updateProtocol("reset_policy", event.target.value)} /></label>
-              <label><span>{t.objectResetPolicy}</span><textarea value={detail.protocol.object_reset_policy ?? ""} onChange={(event) => updateProtocol("object_reset_policy", event.target.value)} /></label>
+              <label><span>{t.resetPolicy}</span><textarea value={detail.protocol.reset_policy ?? ""} onChange={(event) => updateProtocol("reset_policy", event.target.value)} placeholder="例如：每次 trial 前机械臂回到 home pose，场景重新加载。" /></label>
+              <label><span>{t.objectResetPolicy}</span><textarea value={detail.protocol.object_reset_policy ?? ""} onChange={(event) => updateProtocol("object_reset_policy", event.target.value)} placeholder="例如：零件恢复到固定初始位姿，随机扰动范围 +/- 2 cm。" /></label>
             </div>
             <button className="primary" onClick={() => void saveProtocol()}><Save size={16} />{t.save}</button>
           </Section>}
@@ -290,29 +308,29 @@ export function Experiments({ t, projects, refresh }: Props) {
           {tab === "runs" && <Section title={t.runsTrials} icon={<Workflow size={16} />}>
             <div className="form-grid two-col">
               <label><span>{t.condition}</span><select value={trialForm.condition_id} onChange={(event) => setTrialForm({ ...trialForm, condition_id: event.target.value })}><option value="">{t.chooseCondition}</option>{detail.conditions.map((condition) => <option key={condition.id} value={condition.id}>{condition.name}</option>)}</select></label>
-              <label><span>{t.trialId}</span><input value={trialForm.trial_id} onChange={(event) => setTrialForm({ ...trialForm, trial_id: event.target.value })} /></label>
-              <label><span>{t.scene}</span><input value={trialForm.scene} onChange={(event) => setTrialForm({ ...trialForm, scene: event.target.value })} /></label>
-              <label><span>{t.seed}</span><input type="number" value={trialForm.seed} onChange={(event) => setTrialForm({ ...trialForm, seed: event.target.value })} /></label>
+              <label><span>{t.trialId}</span><input value={trialForm.trial_id} onChange={(event) => setTrialForm({ ...trialForm, trial_id: event.target.value })} placeholder="例如：T-001" /></label>
+              <label><span>{t.scene}</span><input value={trialForm.scene} onChange={(event) => setTrialForm({ ...trialForm, scene: event.target.value })} placeholder="例如：assembly_scene_01 / real_lab_A" /></label>
+              <label><span>{t.seed}</span><input type="number" value={trialForm.seed} onChange={(event) => setTrialForm({ ...trialForm, seed: event.target.value })} placeholder="例如：42" /></label>
               <label><span>{t.result}</span><select value={trialForm.result} onChange={(event) => setTrialForm({ ...trialForm, result: event.target.value })}><option>Success</option><option>Failed</option><option>Aborted</option></select></label>
-              <label><span>{t.duration}</span><input type="number" value={trialForm.duration_seconds} onChange={(event) => setTrialForm({ ...trialForm, duration_seconds: event.target.value })} /></label>
-              <label><span>{t.planLength}</span><input type="number" value={trialForm.plan_length} onChange={(event) => setTrialForm({ ...trialForm, plan_length: event.target.value })} /></label>
-              <label><span>{t.replanCount}</span><input type="number" value={trialForm.replan_count} onChange={(event) => setTrialForm({ ...trialForm, replan_count: event.target.value })} /></label>
+              <label><span>{t.duration}</span><input type="number" value={trialForm.duration_seconds} onChange={(event) => setTrialForm({ ...trialForm, duration_seconds: event.target.value })} placeholder="单位秒，例如：54.2" /></label>
+              <label><span>{t.planLength}</span><input type="number" value={trialForm.plan_length} onChange={(event) => setTrialForm({ ...trialForm, plan_length: event.target.value })} placeholder="例如：8" /></label>
+              <label><span>{t.replanCount}</span><input type="number" value={trialForm.replan_count} onChange={(event) => setTrialForm({ ...trialForm, replan_count: event.target.value })} placeholder="例如：1" /></label>
               <label><span>{t.failureLayer}</span><select value={trialForm.failure_layer} onChange={(event) => setTrialForm({ ...trialForm, failure_layer: event.target.value })}><option value="">-</option>{FAILURE_LAYERS.map((item) => <option key={item}>{item}</option>)}</select></label>
               <label className="select-row"><input type="checkbox" checked={trialForm.human_intervention} onChange={(event) => setTrialForm({ ...trialForm, human_intervention: event.target.checked })} />{t.humanIntervention}</label>
-              <label className="full-field"><span>{t.note}</span><textarea value={trialForm.note} onChange={(event) => setTrialForm({ ...trialForm, note: event.target.value })} /></label>
+              <label className="full-field"><span>{t.note}</span><textarea value={trialForm.note} onChange={(event) => setTrialForm({ ...trialForm, note: event.target.value })} placeholder="记录本次 trial 的关键现象、失败原因或人工观察。" /></label>
             </div>
             <button className="primary" disabled={!trialForm.condition_id} onClick={() => void createTrial()}><Plus size={16} />{t.addTrial}</button>
             <TrialTable t={t} detail={detail} trialsByCondition={trialsByCondition} />
             <div className="trace-editor">
               <h3>{t.planningTrace}</h3>
-              <div className="form-grid two-col"><label><span>{t.trial}</span><select value={traceForm.trial_id} onChange={(event) => setTraceForm({ ...traceForm, trial_id: event.target.value })}><option value="">{t.chooseTrial}</option>{detail.trials.map((trial) => <option key={trial.id} value={trial.id}>{trial.trial_id}</option>)}</select></label><label><span>{t.traceType}</span><select value={traceForm.event_type} onChange={(event) => setTraceForm({ ...traceForm, event_type: event.target.value })}>{TRACE_TYPES.map((item) => <option key={item}>{item}</option>)}</select></label><label><span>{t.traceTitle}</span><input value={traceForm.title} onChange={(event) => setTraceForm({ ...traceForm, title: event.target.value })} /></label><label><span>{t.traceOrder}</span><input type="number" value={traceForm.order_index} onChange={(event) => setTraceForm({ ...traceForm, order_index: event.target.value })} /></label><label className="full-field"><span>{t.traceContent}</span><textarea value={traceForm.content} onChange={(event) => setTraceForm({ ...traceForm, content: event.target.value })} /></label></div>
+              <div className="form-grid two-col"><label><span>{t.trial}</span><select value={traceForm.trial_id} onChange={(event) => setTraceForm({ ...traceForm, trial_id: event.target.value })}><option value="">{t.chooseTrial}</option>{detail.trials.map((trial) => <option key={trial.id} value={trial.id}>{trial.trial_id}</option>)}</select></label><label><span>{t.traceType}</span><select value={traceForm.event_type} onChange={(event) => setTraceForm({ ...traceForm, event_type: event.target.value })}>{TRACE_TYPES.map((item) => <option key={item}>{item}</option>)}</select></label><label><span>{t.traceTitle}</span><input value={traceForm.title} onChange={(event) => setTraceForm({ ...traceForm, title: event.target.value })} placeholder="例如：第一次插入失败 / 重新定位零件" /></label><label><span>{t.traceOrder}</span><input type="number" value={traceForm.order_index} onChange={(event) => setTraceForm({ ...traceForm, order_index: event.target.value })} placeholder="例如：1" /></label><label className="full-field"><span>{t.traceContent}</span><textarea value={traceForm.content} onChange={(event) => setTraceForm({ ...traceForm, content: event.target.value })} placeholder="例如：Planner 输出 Detect -> Pick -> Align -> Insert；插入阶段反馈 pose error 4.2 mm，触发 replan。" /></label></div>
               <button disabled={!traceForm.trial_id} onClick={() => void createTrace()}><Plus size={16} />{t.addTrace}</button>
               {selectedTrial && <TraceList t={t} events={detail.trace_events.filter((event) => event.trial_id === selectedTrial.id)} />}
             </div>
           </Section>}
 
           {tab === "results" && <Section title={t.results} icon={<BarChart3 size={16} />}>
-            <div className="form-grid two-col"><label><span>{t.condition}</span><select value={metricForm.condition_id} onChange={(event) => setMetricForm({ ...metricForm, condition_id: event.target.value })}><option value="">{t.studyLevel}</option>{detail.conditions.map((condition) => <option key={condition.id} value={condition.id}>{condition.name}</option>)}</select></label><label><span>{t.metric}</span><select value={metricForm.metric_key} onChange={(event) => setMetricForm({ ...metricForm, metric_key: event.target.value })}>{metricTemplates.map((metric) => <option key={metric.key} value={metric.key}>{metric.name_zh || metric.name}</option>)}</select></label><label><span>{t.mean}</span><input type="number" value={metricForm.mean} onChange={(event) => setMetricForm({ ...metricForm, mean: event.target.value })} /></label><label><span>{t.std}</span><input type="number" value={metricForm.std} onChange={(event) => setMetricForm({ ...metricForm, std: event.target.value })} /></label><label><span>{t.count}</span><input type="number" value={metricForm.count} onChange={(event) => setMetricForm({ ...metricForm, count: event.target.value })} /></label><label><span>{t.pValue}</span><input type="number" value={metricForm.p_value} onChange={(event) => setMetricForm({ ...metricForm, p_value: event.target.value })} /></label><label><span>{t.effectSize}</span><input value={metricForm.effect_size} onChange={(event) => setMetricForm({ ...metricForm, effect_size: event.target.value })} /></label><label><span>{t.confidenceInterval}</span><input value={metricForm.confidence_interval} onChange={(event) => setMetricForm({ ...metricForm, confidence_interval: event.target.value })} /></label><label><span>{t.statisticalTest}</span><input value={metricForm.statistical_test} onChange={(event) => setMetricForm({ ...metricForm, statistical_test: event.target.value })} /></label><label className="select-row"><input type="checkbox" checked={metricForm.is_primary} onChange={(event) => setMetricForm({ ...metricForm, is_primary: event.target.checked })} />{t.primaryMetric}</label></div>
+            <div className="form-grid two-col"><label><span>{t.condition}</span><select value={metricForm.condition_id} onChange={(event) => setMetricForm({ ...metricForm, condition_id: event.target.value })}><option value="">{t.studyLevel}</option>{detail.conditions.map((condition) => <option key={condition.id} value={condition.id}>{condition.name}</option>)}</select></label><label><span>{t.metric}</span><select value={metricForm.metric_key} onChange={(event) => setMetricForm({ ...metricForm, metric_key: event.target.value })}>{metricTemplates.map((metric) => <option key={metric.key} value={metric.key}>{metric.name_zh || metric.name}</option>)}</select></label><label><span>{t.mean}</span><input type="number" value={metricForm.mean} onChange={(event) => setMetricForm({ ...metricForm, mean: event.target.value })} placeholder="例如：81.7" /></label><label><span>{t.std}</span><input type="number" value={metricForm.std} onChange={(event) => setMetricForm({ ...metricForm, std: event.target.value })} placeholder="例如：4.2" /></label><label><span>{t.count}</span><input type="number" value={metricForm.count} onChange={(event) => setMetricForm({ ...metricForm, count: event.target.value })} placeholder="例如：30" /></label><label><span>{t.pValue}</span><input type="number" value={metricForm.p_value} onChange={(event) => setMetricForm({ ...metricForm, p_value: event.target.value })} placeholder="例如：0.032" /></label><label><span>{t.effectSize}</span><input value={metricForm.effect_size} onChange={(event) => setMetricForm({ ...metricForm, effect_size: event.target.value })} placeholder="例如：+19.4 pp / Cohen d=0.8" /></label><label><span>{t.confidenceInterval}</span><input value={metricForm.confidence_interval} onChange={(event) => setMetricForm({ ...metricForm, confidence_interval: event.target.value })} placeholder="例如：95% CI [73.2, 88.5]" /></label><label><span>{t.statisticalTest}</span><input value={metricForm.statistical_test} onChange={(event) => setMetricForm({ ...metricForm, statistical_test: event.target.value })} placeholder="例如：Fisher exact test / Mann-Whitney U" /></label><label className="select-row"><input type="checkbox" checked={metricForm.is_primary} onChange={(event) => setMetricForm({ ...metricForm, is_primary: event.target.checked })} />{t.primaryMetric}</label></div>
             <button className="primary" onClick={() => void createMetric()}><Plus size={16} />{t.addMetric}</button>
             <div className="condition-grid">{detail.metrics.map((metric) => <div className="paper-card" key={metric.id}><strong>{metricLabel(metricTemplates, metric.metric_key)}</strong><span>{t.mean}: {metric.mean ?? metric.value ?? "-"} · {t.std}: {metric.std ?? "-"} · n={metric.count ?? "-"}</span><span>{t.statistics}: {metric.statistical_test || "-"} p={metric.p_value ?? "-"} {metric.confidence_interval || ""}</span></div>)}</div>
           </Section>}
@@ -321,9 +339,9 @@ export function Experiments({ t, projects, refresh }: Props) {
 
           {tab === "ablation" && <Section title={t.ablationGeneralization} icon={<BarChart3 size={16} />}><div className="condition-grid">{detail.conditions.map((condition) => <div className="paper-card" key={condition.id}><strong>{condition.name}</strong><span>{label(t.conditionLabels, condition.condition_type)}</span><span>{t.enabledComponents}: {condition.enabled_components || "-"}</span><span>{t.generalization}: {condition.generalization_dimension || "-"} · {condition.seen_unseen || "-"}</span><span>{t.successRate}: {condition.success_rate ?? "-"}%</span></div>)}</div></Section>}
 
-          {tab === "media" && <Section title={t.mediaArtifacts} icon={<Workflow size={16} />}><div className="form-grid two-col"><label><span>{t.artifactType}</span><select value={artifactForm.artifact_type} onChange={(event) => setArtifactForm({ ...artifactForm, artifact_type: event.target.value })}>{ARTIFACT_TYPES.map((item) => <option key={item}>{item}</option>)}</select></label><label><span>{t.condition}</span><select value={artifactForm.condition_id} onChange={(event) => setArtifactForm({ ...artifactForm, condition_id: event.target.value })}><option value="">{t.studyLevel}</option>{detail.conditions.map((condition) => <option key={condition.id} value={condition.id}>{condition.name}</option>)}</select></label><label><span>{t.trial}</span><select value={artifactForm.trial_id} onChange={(event) => setArtifactForm({ ...artifactForm, trial_id: event.target.value })}><option value="">-</option>{detail.trials.map((trial) => <option key={trial.id} value={trial.id}>{trial.trial_id}</option>)}</select></label><label><span>{t.artifactPath}</span><input value={artifactForm.path} onChange={(event) => setArtifactForm({ ...artifactForm, path: event.target.value })} placeholder={t.artifactPathPlaceholder} /></label><label className="full-field"><span>{t.description}</span><textarea value={artifactForm.description} onChange={(event) => setArtifactForm({ ...artifactForm, description: event.target.value })} /></label></div><button className="primary" disabled={!artifactForm.path} onClick={() => void createArtifact()}><Plus size={16} />{t.addArtifact}</button><div className="condition-grid">{detail.artifacts.map((artifact) => <div className="paper-card" key={artifact.id}><strong>{artifact.artifact_type}</strong><code>{artifact.path}</code><span>{artifact.description || "-"}</span></div>)}</div></Section>}
+          {tab === "media" && <Section title={t.mediaArtifacts} icon={<Workflow size={16} />}><div className="form-grid two-col"><label><span>{t.artifactType}</span><select value={artifactForm.artifact_type} onChange={(event) => setArtifactForm({ ...artifactForm, artifact_type: event.target.value })}>{ARTIFACT_TYPES.map((item) => <option key={item}>{item}</option>)}</select></label><label><span>{t.condition}</span><select value={artifactForm.condition_id} onChange={(event) => setArtifactForm({ ...artifactForm, condition_id: event.target.value })}><option value="">{t.studyLevel}</option>{detail.conditions.map((condition) => <option key={condition.id} value={condition.id}>{condition.name}</option>)}</select></label><label><span>{t.trial}</span><select value={artifactForm.trial_id} onChange={(event) => setArtifactForm({ ...artifactForm, trial_id: event.target.value })}><option value="">-</option>{detail.trials.map((trial) => <option key={trial.id} value={trial.id}>{trial.trial_id}</option>)}</select></label><label><span>{t.artifactPath}</span><input value={artifactForm.path} onChange={(event) => setArtifactForm({ ...artifactForm, path: event.target.value })} placeholder={t.artifactPathPlaceholder} /></label><label className="full-field"><span>{t.description}</span><textarea value={artifactForm.description} onChange={(event) => setArtifactForm({ ...artifactForm, description: event.target.value })} placeholder="例如：真实机械臂成功装配视频，展示一次 recovery 后完成插入。" /></label></div><button className="primary" disabled={!artifactForm.path} onClick={() => void createArtifact()}><Plus size={16} />{t.addArtifact}</button><div className="condition-grid">{detail.artifacts.map((artifact) => <div className="paper-card" key={artifact.id}><strong>{artifact.artifact_type}</strong><code>{artifact.path}</code><span>{artifact.description || "-"}</span></div>)}</div></Section>}
 
-          {tab === "analysis" && <Section title={t.analysisConclusion} icon={<BarChart3 size={16} />}><div className="form-grid two-col text-fields">{(["analysis_key_findings", "analysis_unexpected_findings", "analysis_failure_summary", "analysis_why_worked", "analysis_why_failed", "analysis_limitations", "analysis_threats_to_validity", "evidence_summary", "key_metric_improvements", "next_step"] as const).map((key) => <label key={key}><span>{label(t.analysisFields, key)}</span><textarea value={(detail.study[key] as string | null) ?? ""} onChange={(event) => setDetail({ ...detail, study: { ...detail.study, [key]: event.target.value } })} /></label>)}</div><button className="primary" onClick={() => void saveStudy(detail.study)}><Save size={16} />{t.saveAnalysis}</button></Section>}
+          {tab === "analysis" && <Section title={t.analysisConclusion} icon={<BarChart3 size={16} />}><div className="form-grid two-col text-fields">{(["analysis_key_findings", "analysis_unexpected_findings", "analysis_failure_summary", "analysis_why_worked", "analysis_why_failed", "analysis_limitations", "analysis_threats_to_validity", "evidence_summary", "key_metric_improvements", "next_step"] as const).map((key) => <label key={key}><span>{label(t.analysisFields, key)}</span><textarea value={(detail.study[key] as string | null) ?? ""} onChange={(event) => setDetail({ ...detail, study: { ...detail.study, [key]: event.target.value } })} placeholder={analysisPlaceholder(key)} /></label>)}</div><button className="primary" onClick={() => void saveStudy(detail.study)}><Save size={16} />{t.saveAnalysis}</button></Section>}
         </>}
       </div>
     </section>
@@ -339,7 +357,32 @@ function Section({ title, icon, children }: { title: string; icon: ReactNode; ch
 }
 
 function EditableText({ t, label: title, value, onChange, onSave }: { t: ExperimentsText; label: string; value?: string | null; onChange: (value: string) => void; onSave: () => void }) {
-  return <label className="full-field"><span>{title}</span><textarea value={value ?? ""} onChange={(event) => onChange(event.target.value)} /><button onClick={onSave}><Save size={16} />{t.save}</button></label>;
+  return <label className="full-field"><span>{title}</span><textarea value={value ?? ""} onChange={(event) => onChange(event.target.value)} placeholder={placeholderFor(title, t)} /><button onClick={onSave}><Save size={16} />{t.save}</button></label>;
+}
+
+function analysisPlaceholder(key: string) {
+  const map: Record<string, string> = {
+    analysis_key_findings: "例如：执行反馈让长时序装配任务成功率提升 19.4 个百分点。",
+    analysis_unexpected_findings: "例如：重规划增加了少量 latency，但显著减少了不可恢复失败。",
+    analysis_failure_summary: "例如：主要失败集中在对齐、插入和视觉 grounding 阶段。",
+    analysis_why_worked: "例如：反馈闭环能在插入失败后重新定位并修正后续动作。",
+    analysis_why_failed: "例如：当零件被遮挡导致位姿估计错误时，planner 无法生成可执行动作。",
+    analysis_limitations: "例如：当前只在一种机械臂和有限零件集合上验证。",
+    analysis_threats_to_validity: "例如：场景数量有限；LLM 输出存在随机性；人工设计技能库可能影响公平性。",
+    evidence_summary: "例如：30 次 trial 中，Ours 成功 24 次，Baseline 成功 18 次。",
+    key_metric_improvements: "例如：Task Success +19.4 pp；Recovery Success +31 pp；Invalid Action -12 pp。",
+    next_step: "例如：扩展到未见过零件和真实机械臂装配场景。",
+  };
+  return map[key] ?? "请填写本实验的分析结论。";
+}
+
+function placeholderFor(title: string, t: ExperimentsText) {
+  const map: Record<string, string> = {
+    [t.researchQuestion]: "例如：执行反馈是否能提升长时序机械臂装配任务的成功率？",
+    [t.hypothesis]: "例如：加入执行反馈与重规划后，任务成功率提升且不可恢复失败减少。",
+    [t.claim]: "例如：我们的方法比开放环 LLM planner 更能处理装配过程中的执行不确定性。",
+  };
+  return map[title] ?? "请填写关键结论、证据或下一步计划。";
 }
 
 function TrialTable({ t, detail, trialsByCondition, onlyFailures = false }: { t: ExperimentsText; detail: ExperimentStudyDetail; trialsByCondition: Record<number, ExperimentTrial[]>; onlyFailures?: boolean }) {

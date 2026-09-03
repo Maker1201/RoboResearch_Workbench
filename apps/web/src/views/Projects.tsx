@@ -262,7 +262,7 @@ export function Projects({ t: _t, projects, refresh }: { t: typeof ui.zh.project
         <div className="form-grid filters">
           <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索项目" />
           <select value={status} onChange={(event) => setStatus(event.target.value)}>{statuses.map((item) => <option key={item || "all"} value={item}>{item ? projectStatusText(item) : "全部状态"}</option>)}</select>
-          <input value={tag} onChange={(event) => setTag(event.target.value)} placeholder="Tag" />
+          <input value={tag} onChange={(event) => setTag(event.target.value)} placeholder="标签，例如：ROS2 / VLA / manipulation" />
           <select value={sort} onChange={(event) => setSort(event.target.value)}><option value="updated">最近更新</option><option value="name">名称</option><option value="progress">进度</option></select>
           <button onClick={() => void loadFiltered()}><SlidersHorizontal size={16} />应用</button>
         </div>
@@ -302,11 +302,11 @@ export function Projects({ t: _t, projects, refresh }: { t: typeof ui.zh.project
             </div>
             <div className="tag-cloud">{Object.entries(scan.detections).map(([key, value]) => <span key={key}>{value ? "✓" : "-"} {detectionLabels[key] || key}</span>)}</div>
             <div className="form-grid settings-grid">
-              <input value={registerMeta.name} onChange={(event) => setRegisterMeta({ ...registerMeta, name: event.target.value })} placeholder="项目名称" />
+              <input value={registerMeta.name} onChange={(event) => setRegisterMeta({ ...registerMeta, name: event.target.value })} placeholder="项目名称，例如：Assembly Task Planner" />
               <select value={registerMeta.status} onChange={(event) => setRegisterMeta({ ...registerMeta, status: event.target.value })}>{statuses.filter(Boolean).map((item) => <option key={item} value={item}>{projectStatusText(item)}</option>)}</select>
               <select value={registerMeta.progress_mode} onChange={(event) => setRegisterMeta({ ...registerMeta, progress_mode: event.target.value })}><option value="AUTO">自动计算进度</option><option value="MANUAL">手动设置进度</option></select>
-              <input value={registerMeta.tags} onChange={(event) => setRegisterMeta({ ...registerMeta, tags: event.target.value })} placeholder="标签" />
-              <textarea value={registerMeta.description} onChange={(event) => setRegisterMeta({ ...registerMeta, description: event.target.value })} placeholder="项目描述" />
+              <input value={registerMeta.tags} onChange={(event) => setRegisterMeta({ ...registerMeta, tags: event.target.value })} placeholder="标签，例如：ROS2, manipulation, task planning" />
+              <textarea value={registerMeta.description} onChange={(event) => setRegisterMeta({ ...registerMeta, description: event.target.value })} placeholder="一句话说明项目目标、机器人平台或算法方向" />
               <button className="primary" onClick={() => void registerScannedProject()}><Save size={16} />确认注册</button>
             </div>
           </div>
@@ -402,8 +402,8 @@ export function Projects({ t: _t, projects, refresh }: { t: typeof ui.zh.project
                             <option value="completed">已完成</option>
                             <option value="blocked">阻塞</option>
                           </select>
-                          <input type="number" min="0" max="100" value={draft?.progress ?? stage.progress} onChange={(event) => stage.id && setStageDrafts((items) => ({ ...items, [stage.id!]: { ...(items[stage.id!] || { progress: stage.progress, weight: stage.weight, status: stage.status }), progress: Number(event.target.value) } }))} />
-                          <input type="number" min="0" step="0.5" value={draft?.weight ?? stage.weight} onChange={(event) => stage.id && setStageDrafts((items) => ({ ...items, [stage.id!]: { ...(items[stage.id!] || { progress: stage.progress, weight: stage.weight, status: stage.status }), weight: Number(event.target.value) } }))} />
+                          <input type="number" min="0" max="100" value={draft?.progress ?? stage.progress} onChange={(event) => stage.id && setStageDrafts((items) => ({ ...items, [stage.id!]: { ...(items[stage.id!] || { progress: stage.progress, weight: stage.weight, status: stage.status }), progress: Number(event.target.value) } }))} placeholder="0-100" />
+                          <input type="number" min="0" step="0.5" value={draft?.weight ?? stage.weight} onChange={(event) => stage.id && setStageDrafts((items) => ({ ...items, [stage.id!]: { ...(items[stage.id!] || { progress: stage.progress, weight: stage.weight, status: stage.status }), weight: Number(event.target.value) } }))} placeholder="阶段权重，例如：1" />
                           <button disabled={!stage.id} onClick={() => void saveStage(stage)}>保存阶段</button>
                         </div>
                         {stage.milestones?.length ? stage.milestones.map((milestone) => <div className="milestone-row" key={milestone.id}><span>{milestone.title}</span><progress value={milestone.progress} max={100} /><strong>{Math.round(milestone.progress)}%</strong></div>) : <p className="muted">暂无里程碑，当前阶段进度使用阶段本身的进度值。</p>}
@@ -418,8 +418,8 @@ export function Projects({ t: _t, projects, refresh }: { t: typeof ui.zh.project
                       <option value="completed">已完成</option>
                       <option value="blocked">阻塞</option>
                     </select>
-                    <input type="number" min="0" max="100" value={newStage.progress} onChange={(event) => setNewStage({ ...newStage, progress: Number(event.target.value) })} />
-                    <input type="number" min="0" step="0.5" value={newStage.weight} onChange={(event) => setNewStage({ ...newStage, weight: Number(event.target.value) })} />
+                    <input type="number" min="0" max="100" value={newStage.progress} onChange={(event) => setNewStage({ ...newStage, progress: Number(event.target.value) })} placeholder="初始进度 0-100" />
+                    <input type="number" min="0" step="0.5" value={newStage.weight} onChange={(event) => setNewStage({ ...newStage, weight: Number(event.target.value) })} placeholder="阶段权重，例如：1" />
                     <button className="primary" disabled={!newStage.title.trim()} onClick={() => void createCustomStage()}><Plus size={16} />添加阶段</button>
                   </div>
                 </div>
@@ -436,9 +436,9 @@ export function Projects({ t: _t, projects, refresh }: { t: typeof ui.zh.project
                   <div className="toolbar"><button disabled={!git?.changes?.length} onClick={() => void selectAllSafeChanges()}>全选安全文件</button><button disabled={!checked.length} onClick={() => setChecked([])}>清空选择</button><span className="muted">已选择 {checked.length} / {git?.changes?.length || 0}</span></div>
                   <div className="changes">{git?.changes?.map((change) => <label key={change.path}><input type="checkbox" checked={checked.includes(change.path)} onChange={(event) => setChecked((items) => event.target.checked ? Array.from(new Set([...items, change.path])) : items.filter((item) => item !== change.path))} /><code>{change.status}</code><button className="link-button" onClick={() => void showDiff(change.path)}>{change.path}</button></label>)}</div>
                   <div className="toolbar"><button disabled={!checked.length} onClick={() => void gitAction(() => api.gitStage(selectedProject.id, checked), "文件已暂存。")}>暂存</button><button disabled={!checked.length} onClick={() => void gitAction(() => api.gitUnstage(selectedProject.id, checked), "文件已取消暂存。")}>取消暂存</button></div>
-                  <div className="form-grid"><input value={commitMessage} onChange={(event) => setCommitMessage(event.target.value)} placeholder="提交信息" /><button className="primary" disabled={!checked.length || commitMessage.length < 3} onClick={() => void gitAction(() => api.gitCommit(selectedProject.id, checked, commitMessage), "提交已创建。")}><GitCommitHorizontal size={16} />提交所选文件</button></div>
+                  <div className="form-grid"><input value={commitMessage} onChange={(event) => setCommitMessage(event.target.value)} placeholder="例如：feat: add assembly planner baseline" /><button className="primary" disabled={!checked.length || commitMessage.length < 3} onClick={() => void gitAction(() => api.gitCommit(selectedProject.id, checked, commitMessage), "提交已创建。")}><GitCommitHorizontal size={16} />提交所选文件</button></div>
                 </div>
-                <div className="panel-lite"><h3>差异</h3><pre className="diff-box">{diff || "选择一个变更文件查看差异。"}</pre><h3>发布到 GitHub</h3><div className="form-grid"><input value={publish.repository_name} onChange={(event) => setPublish({ ...publish, repository_name: event.target.value })} placeholder="仓库名称" /><input value={publish.description} onChange={(event) => setPublish({ ...publish, description: event.target.value })} placeholder="项目描述" /><select value={publish.visibility} onChange={(event) => setPublish({ ...publish, visibility: event.target.value })}><option value="private">私有</option><option value="public">公开</option></select><input value={publish.default_branch} onChange={(event) => setPublish({ ...publish, default_branch: event.target.value })} placeholder="默认分支" /><button className="primary" onClick={() => void publishToGithub(false)}><UploadCloud size={16} />创建仓库并推送</button>{securityScan && <SecurityScan scan={securityScan} onContinue={() => void publishToGithub(true)} />}</div></div>
+                <div className="panel-lite"><h3>差异</h3><pre className="diff-box">{diff || "选择一个变更文件查看差异。"}</pre><h3>发布到 GitHub</h3><div className="form-grid"><input value={publish.repository_name} onChange={(event) => setPublish({ ...publish, repository_name: event.target.value })} placeholder="例如：assembly-task-planner" /><input value={publish.description} onChange={(event) => setPublish({ ...publish, description: event.target.value })} placeholder="一句话说明项目目标、机器人平台或算法方向" /><select value={publish.visibility} onChange={(event) => setPublish({ ...publish, visibility: event.target.value })}><option value="private">私有</option><option value="public">公开</option></select><input value={publish.default_branch} onChange={(event) => setPublish({ ...publish, default_branch: event.target.value })} placeholder="main" /><button className="primary" onClick={() => void publishToGithub(false)}><UploadCloud size={16} />创建仓库并推送</button>{securityScan && <SecurityScan scan={securityScan} onContinue={() => void publishToGithub(true)} />}</div></div>
               </div>
             )}
 
@@ -453,16 +453,16 @@ export function Projects({ t: _t, projects, refresh }: { t: typeof ui.zh.project
               <div className="panel-lite">
                 <h3>项目设置</h3>
                 <div className="form-grid settings-grid">
-                  <label><span>项目名称</span><input value={detail.project.name || ""} onChange={(event) => updateProjectField({ name: event.target.value })} /></label>
+                  <label><span>项目名称</span><input value={detail.project.name || ""} onChange={(event) => updateProjectField({ name: event.target.value })} placeholder="例如：Assembly Task Planner" /></label>
                   <label><span>项目状态</span><select value={detail.project.status || "Active"} onChange={(event) => updateProjectField({ status: event.target.value })}>{statuses.filter(Boolean).map((item) => <option key={item} value={item}>{projectStatusText(item)}</option>)}</select></label>
                   <label><span>当前阶段</span><input value={detail.project.current_stage || ""} onChange={(event) => updateProjectField({ current_stage: event.target.value })} placeholder="例如：Baseline 复现" /></label>
                   <label><span>下一阶段</span><input value={detail.project.next_stage || ""} onChange={(event) => updateProjectField({ next_stage: event.target.value })} placeholder="例如：真实机器人测试" /></label>
                   <label><span>进度模式</span><select value={detail.project.progress_mode || "AUTO"} onChange={(event) => updateProjectField({ progress_mode: event.target.value })}><option value="AUTO">自动计算进度</option><option value="MANUAL">手动设置进度</option></select></label>
-                  <label><span>手动总进度</span><input type="number" min="0" max="100" value={detail.project.progress || 0} onChange={(event) => updateProjectField({ progress: Number(event.target.value) })} disabled={detail.project.progress_mode !== "MANUAL"} /></label>
-                  <label><span>默认分支</span><input value={detail.project.default_branch || ""} onChange={(event) => updateProjectField({ default_branch: event.target.value })} placeholder="默认分支" /></label>
-                  <label><span>实验目录</span><input value={detail.project.experiment_dir || ""} onChange={(event) => updateProjectField({ experiment_dir: event.target.value })} placeholder="实验目录" /></label>
-                  <label><span>结果目录</span><input value={detail.project.results_dir || ""} onChange={(event) => updateProjectField({ results_dir: event.target.value })} placeholder="结果目录" /></label>
-                  <label className="full-field"><span>项目描述</span><textarea value={detail.project.description || ""} onChange={(event) => updateProjectField({ description: event.target.value })} /></label>
+                  <label><span>手动总进度</span><input type="number" min="0" max="100" value={detail.project.progress || 0} onChange={(event) => updateProjectField({ progress: Number(event.target.value) })} disabled={detail.project.progress_mode !== "MANUAL"} placeholder="0-100" /></label>
+                  <label><span>默认分支</span><input value={detail.project.default_branch || ""} onChange={(event) => updateProjectField({ default_branch: event.target.value })} placeholder="main" /></label>
+                  <label><span>实验目录</span><input value={detail.project.experiment_dir || ""} onChange={(event) => updateProjectField({ experiment_dir: event.target.value })} placeholder="例如：experiments 或 /data/experiments/project-name" /></label>
+                  <label><span>结果目录</span><input value={detail.project.results_dir || ""} onChange={(event) => updateProjectField({ results_dir: event.target.value })} placeholder="例如：results 或 /data/results/project-name" /></label>
+                  <label className="full-field"><span>项目描述</span><textarea value={detail.project.description || ""} onChange={(event) => updateProjectField({ description: event.target.value })} placeholder="说明项目研究问题、当前目标和主要技术路线。" /></label>
                   <button className="primary" onClick={() => void saveProjectSettings()}><SettingsIcon size={16} />保存项目设置</button>
                   <button className="danger" onClick={() => void deleteSelectedProject()}><Trash2 size={16} />从工作台移除</button>
                 </div>

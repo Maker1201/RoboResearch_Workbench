@@ -143,6 +143,46 @@ export type Paper = {
   related_project_id?: number | null;
 };
 
+
+
+export type ZoteroAnnotation = {
+  id?: number | null;
+  paper_id?: number | null;
+  zotero_item_key: string;
+  zotero_annotation_key: string;
+  annotation_type: string;
+  selected_text?: string | null;
+  comment?: string | null;
+  page_label?: string | null;
+  page_index?: number | null;
+  tags?: string | null;
+  date_modified?: string | null;
+  inbox_types?: string[];
+};
+
+export type KnowledgeInboxItem = {
+  id: number;
+  source_type: string;
+  source_paper_id?: number | null;
+  zotero_item_key?: string | null;
+  zotero_annotation_key?: string | null;
+  inbox_type: "knowledge" | "idea" | "question" | string;
+  selected_text?: string | null;
+  comment?: string | null;
+  page_label?: string | null;
+  tags?: string | null;
+  status: "pending" | "processed" | "ignored" | string;
+  created_at: string;
+  updated_at: string;
+  processed_at?: string | null;
+  paper_title?: string | null;
+};
+
+export type KnowledgeSearchResult = {
+  direct_matches: KnowledgeLink[];
+  related: KnowledgeLink[];
+};
+
 export type SearchPaper = {
   id: string;
   title: string;

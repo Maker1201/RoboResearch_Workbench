@@ -4,6 +4,7 @@ import base64
 import hashlib
 import re
 import time
+from datetime import datetime
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from typing import Any, Callable
@@ -1350,3 +1351,90 @@ async def get_child_notes(item_key: str) -> list[dict]:
         for item in items
         if item.get("data", {}).get("itemType") == "note"
     ]
+
+
+async def get_item_annotations(item_key: str) -> list[dict[str, Any]]:
+    """读取 Zotero 条目下的 PDF annotations 和子 note，保持 Zotero 为批注源。"""
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+        server_id = await _get_server_id(client)
+        api_key = await _ensure_api_key(client, server_id)
+        response = await client.get(
+            f"{ZOTERO_BASE_URL}/users/0/items/{item_key}/children?limit=100",
+            headers=_auth_headers(server_id, api_key),
+        )
+        if response.status_code in {404, 410}:
+            raise ZoteroItemNotFound(item_key)
+        response.raise_for_status()
+        children = response.json()
+
+    annotations: list[dict[str, Any]] = []
+    for child in children:
+        data = child.get("data", child)
+        item_type = data.get("itemType")
+        if item_type == "annotation":
+            key = data.get("key") or child.get("key")
+            if not key:
+                continue
+            annotations.append({
+                "zotero_item_key": item_key,
+                "zotero_annotation_key": key,
+                "annotation_type": data.get("annotationType") or "highlight",
+                "selected_text": data.get("annotationText") or data.get("text"),
+                "comment": data.get("annotationComment") or "",
+                "page_label": data.get("annotationPageLabel") or data.get("pageLabel"),
+                "page_index": _safe_int(data.get("annotationPageIndex")),
+                "tags": _tags_to_text(data.get("tags")),
+                "date_modified": _parse_zotero_datetime(data.get("dateModified")),
+            })
+        elif item_type == "note":
+            key = data.get("key") or child.get("key")
+            note = data.get("note") or ""
+            if key and note:
+                annotations.append({
+                    "zotero_item_key": item_key,
+                    "zotero_annotation_key": key,
+                    "annotation_type": "note",
+                    "selected_text": None,
+                    "comment": _html_to_text(note),
+                    "page_label": None,
+                    "page_index": None,
+                    "tags": _tags_to_text(data.get("tags")),
+                    "date_modified": _parse_zotero_datetime(data.get("dateModified")),
+                })
+    return annotations
+
+
+def _tags_to_text(tags: Any) -> str:
+    if not isinstance(tags, list):
+        return ""
+    values = []
+    for item in tags:
+        if isinstance(item, dict) and item.get("tag"):
+            values.append(str(item["tag"]))
+        elif isinstance(item, str):
+            values.append(item)
+    return ", ".join(dict.fromkeys(values))
+
+
+def _safe_int(value: Any) -> int | None:
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_zotero_datetime(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).replace(tzinfo=None)
+    except ValueError:
+        return None
+
+
+def _html_to_text(html: str) -> str:
+    text = re.sub(r"<br\s*/?>", "\n", html, flags=re.IGNORECASE)
+    text = re.sub(r"</p\s*>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()

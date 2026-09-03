@@ -1,4 +1,4 @@
-import type { ArtifactReference, DashboardSummary, DirectoryListing, Experiment, ExperimentCondition, ExperimentProtocol, ExperimentStudy, ExperimentStudyDetail, ExperimentTrial, FocusSession, GitCommit, KnowledgeLink, MetricTemplate, MetricValue, Paper, PlanningTraceEvent, Project, ProjectProgress, ProjectProgressLog, ProjectScan, ReadingNote, RobotProfile, SearchPaper, Summary, SystemSettings, Task, TaskProfile } from "./types";
+import type { ArtifactReference, DashboardSummary, DirectoryListing, Experiment, ExperimentCondition, ExperimentProtocol, ExperimentStudy, ExperimentStudyDetail, ExperimentTrial, FocusSession, GitCommit, KnowledgeInboxItem, KnowledgeLink, KnowledgeSearchResult, MetricTemplate, MetricValue, Paper, PlanningTraceEvent, Project, ProjectProgress, ProjectProgressLog, ProjectScan, ReadingNote, RobotProfile, SearchPaper, Summary, SystemSettings, Task, TaskProfile } from "./types";
 
 export const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8770";
 
@@ -216,6 +216,40 @@ export const api = {
   }),
   aiDraftNote: (paperId: number) => request<{ paper_id: number; note: ReadingNote; source: string }>(`/papers/${paperId}/ai/draft-note`, { method: "POST" }),
   paperPdfText: (paperId: number) => request<{ paper_id: number; pdf_path: string; char_count: number; truncated: boolean; text: string }>(`/papers/${paperId}/pdf-text`),
+  paperAnnotations: (paperId: number) => request<any[]>(`/api/papers/${paperId}/zotero-annotations`),
+  syncPaperAnnotations: (paperId: number) => request<{ paper_id: number; synced: number; inbox_created: number; annotations: any[]; message: string }>(`/api/papers/${paperId}/zotero-annotations/sync`, { method: "POST" }),
+  inboxFromAnnotation: (paperId: number, zoteroAnnotationKey: string, inboxType: string) => request<KnowledgeInboxItem>("/api/knowledge/inbox/from-annotation", {
+    method: "POST",
+    body: JSON.stringify({ paper_id: paperId, zotero_annotation_key: zoteroAnnotationKey, inbox_type: inboxType }),
+  }),
+  knowledgeInbox: (params?: { status?: string; inbox_type?: string }) => {
+    const query = new URLSearchParams();
+    if (params?.status) query.set("status", params.status);
+    if (params?.inbox_type) query.set("inbox_type", params.inbox_type);
+    return request<KnowledgeInboxItem[]>(`/api/knowledge/inbox${query.toString() ? `?${query.toString()}` : ""}`);
+  },
+  updateKnowledgeInbox: (id: number, payload: Partial<KnowledgeInboxItem>) => request<KnowledgeInboxItem>(`/api/knowledge/inbox/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  }),
+  searchKnowledge: (q: string, params?: { category?: string; tags?: string }) => {
+    const query = new URLSearchParams({ q });
+    if (params?.category) query.set("category", params.category);
+    if (params?.tags) query.set("tags", params.tags);
+    return request<KnowledgeSearchResult>(`/api/knowledge/search?${query.toString()}`);
+  },
+  appendKnowledgeEvidence: (knowledgeId: number, payload: { inbox_item_id?: number | null; zotero_annotation_key?: string | null; paper_id?: number | null; manual_title?: string | null; manual_content?: string | null; manual_comment?: string | null; page_label?: string | null; tags?: string | null }) => request<KnowledgeLink>(`/api/knowledge/${knowledgeId}/append-evidence`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }),
+  createKnowledgeFromInbox: (payload: { inbox_item_id: number; title: string; category: string; tags?: string | null; type: string; status?: string; evidence_level?: string; obsidian_path?: string | null; related_knowledge_ids?: number[] }) => request<KnowledgeLink>("/api/knowledge/create-from-inbox", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }),
+  addAnnotationToNote: (noteId: number, zoteroAnnotationKey: string) => request<ReadingNote>(`/api/reading-notes/${noteId}/annotations`, {
+    method: "POST",
+    body: JSON.stringify({ zotero_annotation_key: zoteroAnnotationKey }),
+  }),
   experiments: () => request<Experiment[]>("/experiments"),
   createExperiment: (experiment: Partial<Experiment>) => request<Experiment>("/experiments", {
     method: "POST",
@@ -270,6 +304,11 @@ export const api = {
     method: "POST",
     body: JSON.stringify(knowledge),
   }),
+  updateKnowledge: (id: number, knowledge: Partial<KnowledgeLink>) => request<KnowledgeLink>(`/knowledge-links/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(knowledge),
+  }),
+  deleteKnowledge: (id: number) => request<{ ok: boolean; id: number }>(`/knowledge-links/${id}`, { method: "DELETE" }),
   linkPaperKnowledge: (paperId: number, knowledgeId: number) => request<Paper>(`/papers/${paperId}/knowledge-links/${knowledgeId}`, { method: "PUT" }),
   unlinkPaperKnowledge: (paperId: number, knowledgeId: number) => request<Paper>(`/papers/${paperId}/knowledge-links/${knowledgeId}`, { method: "DELETE" }),
 };

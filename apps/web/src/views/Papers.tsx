@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { BookOpen, Check, Clock3, Eye, Link, NotebookPen, Plus, RefreshCw, Save, Search, Send, Sparkles, Timer, UploadCloud, X } from "lucide-react";
+import { BookOpen, Check, Clock3, Eye, Link, Lightbulb, MessageCircleQuestion, NotebookPen, Plus, RefreshCw, Save, Search, Send, Sparkles, Timer, UploadCloud, X } from "lucide-react";
 import { api } from "../api";
-import type { Paper, Project, ReadingNote, SearchPaper } from "../types";
+import type { Paper, Project, ReadingNote, SearchPaper, ZoteroAnnotation } from "../types";
 import { ui } from "../i18n";
 import { venues, defaultSources, readingStatuses, readingModes, readingPurposes, paperPriorities, literatureSections, literatureSectionLabels, topicFilters } from "../constants";
 import { fileStartsWithPdf, friendlyError, fileToBase64, normalizePaperStatus, paperStatusLabel, pdfAssistTitle, pdfSourceLabel, priorityLabel, readingModeLabel, readingPurposeLabel, resultKey, zoteroSyncLabel } from "../utils";
@@ -32,6 +32,8 @@ export function Papers({ t, papers, projects, notes, refresh, setMessage, setLoa
   const [noteSummary, setNoteSummary] = useState("");
   const [noteRelevance, setNoteRelevance] = useState("");
   const [queueForm, setQueueForm] = useState({ priority: "normal", reading_purpose: "General Interest", related_project_id: "", reading_mode: "SKIM" });
+  const [annotations, setAnnotations] = useState<ZoteroAnnotation[]>([]);
+  const [annotationLoading, setAnnotationLoading] = useState(false);
 
   const visibleResults = results
     .filter((paper) => !ignored[resultKey(paper)])
@@ -58,6 +60,65 @@ export function Papers({ t, papers, projects, notes, refresh, setMessage, setLoa
       setNoteRelevance("");
     }
   }, [selectedNote?.id]);
+
+  useEffect(() => {
+    if (!selectedPaper) {
+      setAnnotations([]);
+      return;
+    }
+    void loadAnnotations(selectedPaper.id);
+  }, [selectedPaper?.id]);
+
+  async function loadAnnotations(paperId: number) {
+    try {
+      const items = await api.paperAnnotations(paperId);
+      setAnnotations(items);
+    } catch {
+      setAnnotations([]);
+    }
+  }
+
+  async function syncAnnotations() {
+    if (!selectedPaper) return;
+    setAnnotationLoading(true);
+    try {
+      const result = await api.syncPaperAnnotations(selectedPaper.id);
+      setAnnotations(result.annotations);
+      setMessage(result.message);
+    } catch (error) {
+      setMessage(`${t.annotationsSyncFailed}: ${friendlyError(error)}`);
+    } finally {
+      setAnnotationLoading(false);
+    }
+  }
+
+  async function addAnnotationToReadingNote(annotation: ZoteroAnnotation) {
+    if (!selectedPaper) return;
+    setLoading(true);
+    try {
+      const note = selectedNote || await api.createPaperNote(selectedPaper.id);
+      const updated = await api.addAnnotationToNote(note.id, annotation.zotero_annotation_key);
+      setSelectedNoteId(updated.id);
+      setNoteDraft(updated.content_markdown || updated.content || "");
+      await refresh();
+      setMessage(t.annotationAddedToNote);
+    } catch (error) {
+      setMessage(`${t.annotationActionFailed}: ${friendlyError(error)}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function sendAnnotationToInbox(annotation: ZoteroAnnotation, inboxType: string) {
+    if (!selectedPaper) return;
+    try {
+      await api.inboxFromAnnotation(selectedPaper.id, annotation.zotero_annotation_key, inboxType);
+      await loadAnnotations(selectedPaper.id);
+      setMessage(inboxType === "knowledge" ? t.annotationSentToKnowledge : inboxType === "idea" ? t.annotationSentToIdea : t.annotationSentToQuestion);
+    } catch (error) {
+      setMessage(`${t.annotationActionFailed}: ${friendlyError(error)}`);
+    }
+  }
 
   async function search() {
     setLoading(true);
@@ -468,6 +529,33 @@ export function Papers({ t, papers, projects, notes, refresh, setMessage, setLoa
     </div>;
   }
 
+  function renderZoteroAnnotations() {
+    if (!selectedPaper) return null;
+    const linked = Boolean(selectedPaper.zotero_item_key || selectedPaper.zotero_key);
+    return <div className="zotero-annotations-panel">
+      <div className="panel-heading compact-heading">
+        <h2>{t.zoteroAnnotations}</h2>
+        <div className="toolbar">
+          <button disabled={!linked || annotationLoading} onClick={() => void syncAnnotations()}><RefreshCw size={16} />{t.syncAnnotations}</button>
+        </div>
+      </div>
+      {!linked && <p className="muted">{t.paperNotLinkedZotero}</p>}
+      {linked && !annotations.length && <p className="muted">{t.noAnnotations}</p>}
+      {annotations.map((annotation) => <article className="annotation-card" key={annotation.zotero_annotation_key}>
+        <div className="paper-card-top"><span>{annotation.annotation_type === "note" ? t.zoteroNote : t.highlight} · {annotation.page_label ? `${t.page} ${annotation.page_label}` : t.noPage}</span><span>{annotation.date_modified ? new Date(annotation.date_modified).toLocaleString() : ""}</span></div>
+        {annotation.selected_text && <p className="annotation-quote">{annotation.selected_text}</p>}
+        {annotation.comment && <p className="annotation-comment"><strong>{t.myComment}</strong>{annotation.comment}</p>}
+        <div className="tag-cloud">{annotation.tags && annotation.tags.split(/,|\n/).map((tag) => tag.trim()).filter(Boolean).map((tag) => <span key={tag}>{tag}</span>)}{annotation.inbox_types?.map((type) => <span key={type}>{type}</span>)}</div>
+        <div className="toolbar">
+          <button onClick={() => void addAnnotationToReadingNote(annotation)}><NotebookPen size={16} />{t.addToReadingNote}</button>
+          <button className="primary" onClick={() => void sendAnnotationToInbox(annotation, "knowledge")}><Sparkles size={16} />{t.extractToKnowledge}</button>
+          <button onClick={() => void sendAnnotationToInbox(annotation, "idea")}><Lightbulb size={16} />{t.markAsIdea}</button>
+          <button onClick={() => void sendAnnotationToInbox(annotation, "question")}><MessageCircleQuestion size={16} />{t.markAsQuestion}</button>
+        </div>
+      </article>)}
+    </div>;
+  }
+
   function aiQueueInfo(paper: Paper) {
     if (!paper.ai_summary) return null;
     const suggested = paper.ai_suggested_mode;
@@ -505,11 +593,11 @@ export function Papers({ t, papers, projects, notes, refresh, setMessage, setLoa
           <h2>{t.searchTitle}</h2>
           <div className="form-grid paper-search refined-search">
             <label><span>来源</span><select value={venue} onChange={(event) => setVenue(event.target.value)}><option value="">全部来源</option>{venues.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
-            <label><span>起始年份</span><input value={fromYear} onChange={(event) => setFromYear(event.target.value)} /></label>
-            <label><span>结束年份</span><input value={toYear} onChange={(event) => setToYear(event.target.value)} /></label>
+            <label><span>起始年份</span><input value={fromYear} onChange={(event) => setFromYear(event.target.value)} placeholder="2020" /></label>
+            <label><span>结束年份</span><input value={toYear} onChange={(event) => setToYear(event.target.value)} placeholder="2026" /></label>
             <label><span>排序</span><select value={sort} onChange={(event) => setSort(event.target.value)}><option value="relevance">相关度</option><option value="newest">最新优先</option></select></label>
-            <label className="search-query-field"><span>主题</span><input value={query} onChange={(event) => setQuery(event.target.value)} /></label>
-            <label className="search-keywords-field"><span>关键词</span><textarea value={keywords} onChange={(event) => setKeywords(event.target.value)} /></label>
+            <label className="search-query-field"><span>主题</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="例如：robot task planning manipulation assembly" /></label>
+            <label className="search-keywords-field"><span>关键词</span><textarea value={keywords} onChange={(event) => setKeywords(event.target.value)} placeholder={"每行一个关键词，例如：\nLLM planner\nassembly\nbehavior tree"} /></label>
             <button className="primary" onClick={() => void search()}><Search size={16} />{t.search}</button>
           </div>
         </div>
@@ -561,7 +649,7 @@ export function Papers({ t, papers, projects, notes, refresh, setMessage, setLoa
 
       {section === "Reading Notes" && <div className="literature-grid note-workbench-grid">
         <div className="panel note-paper-list"><h2>文献</h2><div className="list compact-cards">{library.map((paper) => <button className="list-item" key={paper.id} onClick={() => setSelectedPaperId(paper.id)}><strong>{paper.title}</strong><span>{paperStatusLabel(paper.status)} · {paper.reading_mode ? readingModeLabel(paper.reading_mode) : "未设置阅读模式"}</span></button>)}</div></div>
-        <div className="panel note-editor-panel"><div className="panel-heading"><h2>阅读笔记</h2><div className="toolbar">{selectedPaper && <button onClick={() => void createNote(selectedPaper)}><Plus size={16} />新建</button>}{selectedPaper && <button className="primary" onClick={() => void aiDraftPaperNote()}><Sparkles size={16} />AI 草稿</button>}<button disabled={!selectedNote} onClick={() => void saveNote()}><Save size={16} />保存</button><button disabled={!selectedNote} onClick={() => void pushNoteToZotero()}><Send size={16} />同步 Zotero</button><button disabled={!selectedNote} onClick={() => void exportNote()}><UploadCloud size={16} />导出 .md</button><button disabled={!selectedPaper} onClick={() => void startReadingFocus()}><Timer size={16} />开始阅读</button></div></div>{selectedPaper && <div className="paper-detail-strip"><strong>{selectedPaper.title}</strong><span>{selectedPaper.venue} · {selectedPaper.year || t.noYear}</span><span>Zotero：{selectedPaper.zotero_item_key || selectedPaper.zotero_key || "未关联"}</span>{selectedNote && <span>笔记：{noteSourceLabel(selectedNote.note_source)} · {selectedNote.zotero_note_key ? "已同步 Zotero" : "未同步"}</span>}</div>}<div className="form-grid"><label><span>一句话总结</span><textarea value={noteSummary} onChange={(event) => setNoteSummary(event.target.value)} /></label><label><span>与我的研究相关性</span><textarea value={noteRelevance} onChange={(event) => setNoteRelevance(event.target.value)} /></label><label className="full-field"><span>Markdown 笔记</span><textarea className="large note-template" value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} /></label></div></div>
+        <div className="panel note-editor-panel"><div className="panel-heading"><h2>阅读笔记</h2><div className="toolbar">{selectedPaper && <button onClick={() => void createNote(selectedPaper)}><Plus size={16} />新建</button>}{selectedPaper && <button className="primary" onClick={() => void aiDraftPaperNote()}><Sparkles size={16} />AI 草稿</button>}<button disabled={!selectedNote} onClick={() => void saveNote()}><Save size={16} />保存</button><button disabled={!selectedNote} onClick={() => void pushNoteToZotero()}><Send size={16} />同步 Zotero</button><button disabled={!selectedNote} onClick={() => void exportNote()}><UploadCloud size={16} />导出 .md</button><button disabled={!selectedPaper} onClick={() => void startReadingFocus()}><Timer size={16} />开始阅读</button></div></div>{selectedPaper && <div className="paper-detail-strip"><strong>{selectedPaper.title}</strong><span>{selectedPaper.venue} · {selectedPaper.year || t.noYear}</span><span>Zotero：{selectedPaper.zotero_item_key || selectedPaper.zotero_key || "未关联"}</span>{selectedNote && <span>笔记：{noteSourceLabel(selectedNote.note_source)} · {selectedNote.zotero_note_key ? "已同步 Zotero" : "未同步"}</span>}</div>}{renderZoteroAnnotations()}<div className="form-grid"><label><span>一句话总结</span><textarea value={noteSummary} onChange={(event) => setNoteSummary(event.target.value)} placeholder="用一句话说明这篇论文真正做了什么。" /></label><label><span>与我的研究相关性</span><textarea value={noteRelevance} onChange={(event) => setNoteRelevance(event.target.value)} placeholder="写它和你的项目/实验/论文有什么关系。" /></label><label className="full-field"><span>Markdown 笔记</span><textarea className="large note-template" value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} placeholder="按模板记录：为什么读、核心方法、实验、限制、我的想法、可提炼知识。" /></label></div></div>
       </div>}
 
       {section === "Collections" && <div className="panel"><h2>合集</h2><div className="collection-grid">{venues.map((item) => <button key={item} onClick={() => { setVenue(item); setSection("Library"); }}><strong>{item}</strong><span>{papers.filter((paper) => paper.venue === item).length} 篇文献</span></button>)}</div><div className="tag-cloud collection-tags">{topicFilters.map((item) => <button key={item} onClick={() => { setTopic(item); setSection("Library"); }}>{item}</button>)}</div></div>}

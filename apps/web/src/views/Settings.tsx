@@ -56,11 +56,11 @@ export function SettingsPage({ t, settings, setSettings, setLang, setMessage }: 
       <div className="panel accent-green settings-wide">
         <div className="panel-heading compact-heading"><h2>{t.paths}</h2><button onClick={() => void test("paths")}>{t.test}</button></div>
         <div className="settings-grid">
-          <PathInput label={t.projectsRoot} value={draft.paths.projects_root} onChange={(value) => update("paths", { ...draft.paths, projects_root: value })} />
-          <PathInput label={t.knowledgeRoot} value={draft.paths.knowledge_root} onChange={(value) => update("paths", { ...draft.paths, knowledge_root: value })} />
-          <PathInput label={t.vaultPath} value={draft.paths.obsidian_vault} onChange={(value) => update("paths", { ...draft.paths, obsidian_vault: value })} />
-          <PathInput label={t.datasetRoot} value={draft.paths.dataset_root} onChange={(value) => update("paths", { ...draft.paths, dataset_root: value })} />
-          <PathInput label={t.experimentRoot} value={draft.paths.experiment_root} onChange={(value) => update("paths", { ...draft.paths, experiment_root: value })} />
+          <PathInput label={t.projectsRoot} value={draft.paths.projects_root} onChange={(value) => update("paths", { ...draft.paths, projects_root: value })} placeholder="/home/robot/Projects" hint={t.projectsRootHint} />
+          <PathInput label={t.knowledgeRoot} value={draft.paths.knowledge_root} onChange={(value) => update("paths", { ...draft.paths, knowledge_root: value })} placeholder="/home/robot/文档/Research" hint={t.knowledgeRootHint} />
+          <PathInput label={t.vaultPath} value={draft.paths.obsidian_vault} onChange={(value) => update("paths", { ...draft.paths, obsidian_vault: value })} placeholder="/home/robot/文档/Obsidian Vault" hint={t.vaultPathHint} />
+          <PathInput label={t.datasetRoot} value={draft.paths.dataset_root} onChange={(value) => update("paths", { ...draft.paths, dataset_root: value })} placeholder="/data/datasets" hint={t.datasetRootHint} />
+          <PathInput label={t.experimentRoot} value={draft.paths.experiment_root} onChange={(value) => update("paths", { ...draft.paths, experiment_root: value })} placeholder="/data/experiments" hint={t.experimentRootHint} />
         </div>
       </div>
 
@@ -68,38 +68,38 @@ export function SettingsPage({ t, settings, setSettings, setLang, setMessage }: 
         <h2>{t.integrations}</h2>
         <div className="integration-grid">
           <IntegrationPanel title={t.obsidian} enabled={integrations.obsidian.enabled} onEnabled={(enabled) => update("integrations", { ...integrations, obsidian: { ...integrations.obsidian, enabled } })} onTest={() => void test("obsidian")} testLabel={t.test} enabledLabel={t.enabled}>
-            <PathInput label={t.vaultPath} value={integrations.obsidian.vault_path} onChange={(value) => update("integrations", { ...integrations, obsidian: { ...integrations.obsidian, vault_path: value } })} />
-            <PathInput label={t.knowledgeRoot} value={integrations.obsidian.knowledge_root} onChange={(value) => update("integrations", { ...integrations, obsidian: { ...integrations.obsidian, knowledge_root: value } })} />
+            <PathInput label={t.vaultPath} value={integrations.obsidian.vault_path} onChange={(value) => update("integrations", { ...integrations, obsidian: { ...integrations.obsidian, vault_path: value } })} placeholder="/home/robot/文档/Obsidian Vault" hint={t.vaultPathHint} />
+            <PathInput label={t.knowledgeRoot} value={integrations.obsidian.knowledge_root} onChange={(value) => update("integrations", { ...integrations, obsidian: { ...integrations.obsidian, knowledge_root: value } })} placeholder="Knowledge" hint={t.knowledgeRootHint} />
             <label className="checkbox-line"><input type="checkbox" checked={integrations.obsidian.use_obsidian_uri} onChange={(event) => update("integrations", { ...integrations, obsidian: { ...integrations.obsidian, use_obsidian_uri: event.target.checked } })} />{t.useObsidianUri}</label>
           </IntegrationPanel>
 
           <IntegrationPanel title={t.zotero} enabled={integrations.zotero.enabled} onEnabled={(enabled) => update("integrations", { ...integrations, zotero: { ...integrations.zotero, enabled } })} onTest={() => void test("zotero")} testLabel={t.test} enabledLabel={t.enabled}>
-            <PathInput label={t.connectionMode} value={integrations.zotero.connection_mode} onChange={(value) => update("integrations", { ...integrations, zotero: { ...integrations.zotero, connection_mode: value } })} />
-            <PathInput label={t.userId} value={integrations.zotero.user_id} onChange={(value) => update("integrations", { ...integrations, zotero: { ...integrations.zotero, user_id: value } })} />
-            <PathInput label={t.apiKey} value={integrations.zotero.api_key ?? integrations.zotero.api_key_masked ?? ""} onChange={(value) => update("integrations", { ...integrations, zotero: { ...integrations.zotero, api_key: value } })} password />
-            <PathInput label={t.library} value={integrations.zotero.library} onChange={(value) => update("integrations", { ...integrations, zotero: { ...integrations.zotero, library: value } })} />
+            <PathInput label={t.connectionMode} value={integrations.zotero.connection_mode} onChange={(value) => update("integrations", { ...integrations, zotero: { ...integrations.zotero, connection_mode: value } })} placeholder="local_api" hint={t.zoteroModeHint} />
+            <PathInput label={t.userId} value={integrations.zotero.user_id} onChange={(value) => update("integrations", { ...integrations, zotero: { ...integrations.zotero, user_id: value } })} placeholder="Web API User ID，可选" hint={t.zoteroUserHint} />
+            <PathInput label={t.apiKey} value={integrations.zotero.api_key ?? integrations.zotero.api_key_masked ?? ""} onChange={(value) => update("integrations", { ...integrations, zotero: { ...integrations.zotero, api_key: value } })} placeholder="Zotero API Key" hint={t.zoteroKeyHint} password />
+            <PathInput label={t.library} value={integrations.zotero.library} onChange={(value) => update("integrations", { ...integrations, zotero: { ...integrations.zotero, library: value } })} placeholder="My Library" hint={t.zoteroLibraryHint} />
           </IntegrationPanel>
 
           <IntegrationPanel title={t.github} enabled={integrations.github.enabled} onEnabled={(enabled) => update("integrations", { ...integrations, github: { ...integrations.github, enabled } })} onTest={() => void test("github")} testLabel={t.test} enabledLabel={t.enabled}>
-            <PathInput label={t.username} value={integrations.github.username} onChange={(value) => update("integrations", { ...integrations, github: { ...integrations.github, username: value } })} />
-            <PathInput label={t.token} value={integrations.github.personal_access_token ?? integrations.github.personal_access_token_masked ?? ""} onChange={(value) => update("integrations", { ...integrations, github: { ...integrations.github, personal_access_token: value } })} password />
-            <PathInput label={t.defaultOwner} value={integrations.github.default_owner} onChange={(value) => update("integrations", { ...integrations, github: { ...integrations.github, default_owner: value } })} />
-            <PathInput label={t.defaultBranch} value={integrations.github.default_branch} onChange={(value) => update("integrations", { ...integrations, github: { ...integrations.github, default_branch: value } })} />
+            <PathInput label={t.username} value={integrations.github.username} onChange={(value) => update("integrations", { ...integrations, github: { ...integrations.github, username: value } })} placeholder="GitHub 用户名" hint={t.githubUserHint} />
+            <PathInput label={t.token} value={integrations.github.personal_access_token ?? integrations.github.personal_access_token_masked ?? ""} onChange={(value) => update("integrations", { ...integrations, github: { ...integrations.github, personal_access_token: value } })} placeholder="ghp_..." hint={t.githubTokenHint} password />
+            <PathInput label={t.defaultOwner} value={integrations.github.default_owner} onChange={(value) => update("integrations", { ...integrations, github: { ...integrations.github, default_owner: value } })} placeholder="用户名或组织名" hint={t.defaultOwnerHint} />
+            <PathInput label={t.defaultBranch} value={integrations.github.default_branch} onChange={(value) => update("integrations", { ...integrations, github: { ...integrations.github, default_branch: value } })} placeholder="main" hint={t.defaultBranchHint} />
           </IntegrationPanel>
 
           <IntegrationPanel title={t.ai} enabled={integrations.ai.provider !== "none"} onEnabled={(enabled) => update("integrations", { ...integrations, ai: { ...integrations.ai, provider: enabled ? "openai-compatible" : "none" } })} onTest={() => void test("ai")} testLabel={t.test} enabledLabel={t.enabled}>
-            <PathInput label={t.aiApiBase} value={integrations.ai.api_base} onChange={(value) => update("integrations", { ...integrations, ai: { ...integrations.ai, api_base: value } })} />
+            <PathInput label={t.aiApiBase} value={integrations.ai.api_base} onChange={(value) => update("integrations", { ...integrations, ai: { ...integrations.ai, api_base: value } })} placeholder="https://api.openai.com/v1" hint={t.aiBaseHint} />
             <PathInput label={t.apiKey} value={integrations.ai.api_key ?? integrations.ai.api_key_masked ?? ""} onChange={(value) => update("integrations", { ...integrations, ai: { ...integrations.ai, api_key: value } })} password />
-            <PathInput label={t.aiModel} value={integrations.ai.model} onChange={(value) => update("integrations", { ...integrations, ai: { ...integrations.ai, model: value } })} />
+            <PathInput label={t.aiModel} value={integrations.ai.model} onChange={(value) => update("integrations", { ...integrations, ai: { ...integrations.ai, model: value } })} placeholder="gpt-4.1" hint={t.aiModelHint} />
             <label className="field-label"><span>{t.aiOutputLanguage}</span>
               <select value={integrations.ai.output_language} onChange={(event) => update("integrations", { ...integrations, ai: { ...integrations.ai, output_language: event.target.value } })}>
                 <option value="zh">中文</option>
                 <option value="en">English</option>
               </select>
             </label>
-            <PathInput label={t.aiResearchInterests} value={integrations.ai.research_interests} onChange={(value) => update("integrations", { ...integrations, ai: { ...integrations.ai, research_interests: value } })} />
-            <PathInput label={t.aiMaxPdfChars} value={String(integrations.ai.max_pdf_chars ?? 60000)} onChange={(value) => update("integrations", { ...integrations, ai: { ...integrations.ai, max_pdf_chars: Number(value.replace(/\D/g, "")) || 60000 } })} />
-            <PathInput label={t.aiZoteroDataDir} value={integrations.zotero.data_dir ?? ""} onChange={(value) => update("integrations", { ...integrations, zotero: { ...integrations.zotero, data_dir: value } })} />
+            <PathInput label={t.aiResearchInterests} value={integrations.ai.research_interests} onChange={(value) => update("integrations", { ...integrations, ai: { ...integrations.ai, research_interests: value } })} placeholder="robot task planning, manipulation, assembly" hint={t.aiInterestsHint} />
+            <PathInput label={t.aiMaxPdfChars} value={String(integrations.ai.max_pdf_chars ?? 60000)} onChange={(value) => update("integrations", { ...integrations, ai: { ...integrations.ai, max_pdf_chars: Number(value.replace(/\D/g, "")) || 60000 } })} placeholder="60000" hint={t.aiMaxPdfHint} />
+            <PathInput label={t.aiZoteroDataDir} value={integrations.zotero.data_dir ?? ""} onChange={(value) => update("integrations", { ...integrations, zotero: { ...integrations.zotero, data_dir: value } })} placeholder="/home/robot/Zotero/storage" hint={t.aiZoteroDataHint} />
           </IntegrationPanel>
         </div>
         <button className="primary settings-save" onClick={() => void save()}><Check size={16} />{t.save}</button>
